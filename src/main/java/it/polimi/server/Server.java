@@ -1,25 +1,26 @@
 package it.polimi.server;
 
 import it.polimi.networking.RemoteServerInterface;
+import it.polimi.networking.messages.Result;
+import it.polimi.server.log.LogEntry;
 import it.polimi.server.state.Follower;
 import it.polimi.server.state.State;
+import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.Setter;
 
-import java.rmi.Remote;
 import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
 import java.rmi.server.UnicastRemoteObject;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
 
 public class Server implements RemoteServerInterface {
     /**
      * Server state
      */
+    @Getter(AccessLevel.PROTECTED)
     private State serverState;
 
     /**
@@ -69,11 +70,51 @@ public class Server implements RemoteServerInterface {
         }
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public RemoteServerInterface getLeader() {
         return this.selfInterface;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public int addToCluster(RemoteServerInterface follower) {
         return ThreadLocalRandom.current().nextInt(0, 10000);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    public Result appendEntries(int term, Integer leaderId, Integer prevLogIndex, Integer prevLogTerm, SortedMap<Integer, LogEntry> newEntries, Integer leaderCommit) {
+        int currentTerm = this.serverState.getCurrentTerm();
+
+        // 1. Reply false if term < currentTerm (§5.1)
+        if(term < currentTerm) {
+            return new Result(currentTerm, false);
+        }
+
+        // 2. Reply false if log does not contain an entry at prevLogIndex
+        // whose term matches prevLogTerm (§5.3)
+        if(prevLogTerm != null && !prevLogTerm.equals(this.serverState.getLogger().termAtPosition(prevLogIndex))) {
+            return new Result(currentTerm, false);
+        }
+
+        // 3. If an existing entry conflicts with a new one (same index but different terms),
+        // delete the existing entry and all that follow it (§5.3)
+        for(Map.Entry<Integer, LogEntry> entry : newEntries.entrySet()) {
+            if(this.serverState.getLogger().containConflict(entry.getKey(), entry.getValue().getTerm())) {
+                this.serverState.getLogger().deleteFrom(entry.getKey());
+            }
+        }
+
+        // 4. Append any new entries not already in the log
+        this.serverState.getLogger().appendNewEntries(newEntries);
+
+        // 5. If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry)
+
+
+        return new Result(currentTerm, true);
     }
 }
