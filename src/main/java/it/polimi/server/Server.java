@@ -113,8 +113,35 @@ public class Server implements RemoteServerInterface {
         this.serverState.getLogger().appendNewEntries(newEntries);
 
         // 5. If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry)
-
+        if(leaderCommit > this.serverState.getCommitIndex()) {
+            int commitIndex;
+            try {
+                commitIndex = Math.min(leaderCommit, newEntries.lastKey());
+            } catch(NoSuchElementException e) {
+                commitIndex = leaderCommit;
+            }
+            this.serverState.setCommitIndex(commitIndex);
+        }
 
         return new Result(currentTerm, true);
+    }
+
+    public Result requestVote(int term, Integer candidateId, Integer lastLogIndex, Integer lastLogTerm) throws RemoteException {
+        int currentTerm = serverState.getCurrentTerm();
+        // 1. Reply false if term < currentTerm (§5.1)
+        if(term < currentTerm) {
+            return new Result(currentTerm, false);
+        }
+
+        // 2. If votedFor is null or candidateId, and candidate’s log is at
+        //    least as up-to-date as receiver’s log, grant vote (§5.2, §5.4)
+        Integer votedFor = serverState.getVotedFor();
+        if((votedFor == null || votedFor.equals(candidateId))
+                && lastLogIndex >= serverState.getLastLogIndex()) {
+            serverState.setVotedFor(candidateId);
+            return new Result(currentTerm, true);
+        }
+
+        return new Result(currentTerm, false);
     }
 }

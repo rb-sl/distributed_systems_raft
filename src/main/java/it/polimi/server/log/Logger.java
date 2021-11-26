@@ -61,4 +61,16 @@ public class Logger {
         }
         System.out.println("------------------");
     }
+
+    /**
+     * @see it.polimi.server.state.State#getLastLogIndex() getLastLogIndex
+     * @throws NoSuchElementException
+     */
+    public int getLastIndex() throws NoSuchElementException{
+        return entries.lastKey();
+    }
+
+    public LogEntry getEntry(Integer index) throws NoSuchElementException {
+        return entries.get(index);
+    }
 }
