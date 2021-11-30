@@ -23,6 +23,8 @@ public interface RemoteServerInterface extends Remote {
          */
         int addToCluster(RemoteServerInterface follower) throws RemoteException;
 
+        void addToCluster(int id, RemoteServerInterface follower) throws RemoteException;
+
         /**
          *
          * @param term Leader's term

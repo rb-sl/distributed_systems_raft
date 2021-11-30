@@ -1,5 +1,8 @@
 package it.polimi.server.state;
 
+import it.polimi.server.Server;
+import it.polimi.server.log.Logger;
+
 import java.util.HashMap;
 import java.util.Map;
 
@@ -16,8 +19,9 @@ public class Leader extends State {
      */
     private Map<Integer, Integer> matchIndex;
 
-    public Leader() {
-        super();
+
+    public Leader(Server server, int currentTerm, Integer votedFor, Logger logger, int commitIndex, int lastApplied, Map<String, Integer> variables) {
+        super(server, currentTerm, votedFor, logger, commitIndex, lastApplied, variables);
         nextIndex = new HashMap<>();
         matchIndex = new HashMap<>();
     }

@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.JsonIOException;
 import com.google.gson.JsonSyntaxException;
 import com.google.gson.reflect.TypeToken;
+import it.polimi.server.Server;
 import it.polimi.server.log.LogEntry;
 import it.polimi.server.log.Logger;
 import lombok.Getter;
@@ -21,22 +22,28 @@ import java.util.NoSuchElementException;
 import java.util.Objects;
 
 public abstract class State {
+
+    /**
+     * The election timeout
+     */
+    protected static final int ELECTION_TIMEOUT = 350;
+
     // Persistent state on all servers (Updated on stable storage before responding to RPCs)
     /**
      * Latest term server has seen (initialized to 0 on first boot, increases monotonically)
      */
     @Getter @Setter
-    private int currentTerm;
+    protected int currentTerm;
     /**
      * CandidateId that received vote in current term (or null if none)
      */
     @Getter @Setter
-    private Integer votedFor;
+    protected Integer votedFor;
     /**
      * Log entries; each entry contains command for state machine, and term when entry was received by leader (first index is 1)
      */
     @Getter @Setter
-    private Logger logger;
+    protected Logger logger;
 
     // Volatile state on all servers:
 
@@ -44,30 +51,60 @@ public abstract class State {
      * Index of highest log entry known to be committed (initialized to 0, increases monotonically)
      */
     @Getter
-    private int commitIndex;
+    protected int commitIndex;
 
     /**
      * Index of highest log entry applied to state machine (initialized to 0, increases monotonically)
      */
     @Getter @Setter
-    private int lastApplied;
+    protected int lastApplied;
 
     /**
      * Stored variables
      */
-    private Map<String, Integer> variables;
+    protected Map<String, Integer> variables; // TODO Maybe use as synchronized?
 
     /**
      * Persistent storage for variables
      */
-    Path storage;
+    protected final Path storage = Paths.get("./storage.json");
 
-    FileOutputStream fileOutputStream;
-    OutputStreamWriter outputStreamWriter;
+    /**
+     * Gson object
+     */
+    protected final Gson gson = new Gson();
 
-    Gson gson;
+    /**
+     * Reference to the state's server
+     */
+    protected Server server;
 
-    public State() {
+    /**
+     * Parametric constructor
+     * @param server The server
+     * @param currentTerm The current term
+     * @param votedFor Candidate that received vote on current term
+     * @param logger The logger
+     * @param commitIndex Index of highest log entry known to be committed
+     * @param lastApplied Index of highest log entry applied to state machine
+     * @param variables Map of variables
+     */
+    public State(Server server, int currentTerm, Integer votedFor, Logger logger, int commitIndex, int lastApplied,
+                 Map<String, Integer> variables) {
+        this.server = server;
+        this.currentTerm = currentTerm;
+        this.votedFor = votedFor;
+        this.logger = logger;
+        this.commitIndex = commitIndex;
+        this.lastApplied = lastApplied;
+        this.variables = variables;
+    }
+
+    /**
+     * Init constructor
+     * @param server The server
+     */
+    public State(Server server) {
         this.setCommitIndex(0);
         this.setCurrentTerm(-1);
         this.setVotedFor(null);
@@ -76,13 +113,8 @@ public abstract class State {
         this.setCommitIndex(0);
         this.setLastApplied(0);
 
-        this.gson = new Gson();
-
-        Path path = Paths.get("./storage.json");
-
-        ClassLoader classLoader = getClass().getClassLoader();
-        this.storage = Paths.get("./storage.json");
         restoreVars();
+        this.server = server;
     }
 
     /**
@@ -90,10 +122,8 @@ public abstract class State {
      */
     private void restoreVars() {
         try {
-            Reader reader = new InputStreamReader(Objects.requireNonNull(this.getClass().getResourceAsStream("/storage.json")));
             Type type = new TypeToken<Map<String, Integer>>(){}.getType();
-            this.variables = gson.fromJson(reader, type);
-            reader.close();
+            this.variables = gson.fromJson(Files.readString(storage), type);
         } catch(NullPointerException | JsonIOException | IOException e) {
             e.printStackTrace();
         } catch (JsonSyntaxException e) {
@@ -155,6 +185,28 @@ public abstract class State {
         Integer val = entry.getValue();
 
         this.variables.put(key, val);
-
+        try {
+            writeCommit(gson.toJson(variables));
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
+
+    /**
+     * Set state to follower when the term is greater than {@link State#currentTerm}
+     * @param term The term of received message
+     */
+    public void receivedMsg(int term) {
+        // If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower (§5.1)
+        if(term > currentTerm) {
+            currentTerm = term;
+            this.server.updateState(new Follower(server, this.currentTerm, this.votedFor, this.logger,
+                    this.commitIndex, this.lastApplied, this.variables));
+        }
+    }
+
+    /**
+     * Increment the count of received votes
+     */
+    public synchronized void incrementVotes(Thread starter) {}
 }

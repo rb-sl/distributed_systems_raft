@@ -40,7 +40,6 @@ public class Server implements RemoteServerInterface {
     private int id;
 
     public Server() {
-        this.serverState = new Follower();
         this.cluster = new HashMap<>();
 
         try {
@@ -63,7 +62,9 @@ public class Server implements RemoteServerInterface {
 
             System.out.println(Arrays.toString(registry.list()));
 
-            System.err.println("Server ready");
+            System.err.println("Server " + this.id + " ready");
+
+            this.serverState = new Follower(this);
         } catch (Exception e) {
             System.err.println("Server exception: " + e.toString());
             e.printStackTrace();
@@ -80,8 +81,20 @@ public class Server implements RemoteServerInterface {
     /**
      * {@inheritDoc}
      */
-    public int addToCluster(RemoteServerInterface follower) {
-        return ThreadLocalRandom.current().nextInt(0, 10000);
+    public int addToCluster(RemoteServerInterface follower) throws RemoteException {
+        int id = ThreadLocalRandom.current().nextInt(0, 10000);
+
+        for(Map.Entry<Integer, RemoteServerInterface> entry: cluster.entrySet()) {
+            entry.getValue().addToCluster(id, follower);
+        }
+
+        addToCluster(id, follower);
+
+        return id;
+    }
+
+    public void addToCluster(int id, RemoteServerInterface follower) {
+        cluster.put(id, follower);
     }
 
     /**
@@ -89,6 +102,10 @@ public class Server implements RemoteServerInterface {
      */
     public Result appendEntries(int term, Integer leaderId, Integer prevLogIndex, Integer prevLogTerm, SortedMap<Integer, LogEntry> newEntries, Integer leaderCommit) {
         int currentTerm = this.serverState.getCurrentTerm();
+
+        // Stops [If election timeout elapses without receiving AppendEntries RPC from current leader or granting
+        // vote to candidate: convert to candidate]
+        this.serverState.receivedMsg(term);
 
         // 1. Reply false if term < currentTerm (§5.1)
         if(term < currentTerm) {
@@ -126,6 +143,9 @@ public class Server implements RemoteServerInterface {
         return new Result(currentTerm, true);
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public Result requestVote(int term, Integer candidateId, Integer lastLogIndex, Integer lastLogTerm) throws RemoteException {
         int currentTerm = serverState.getCurrentTerm();
         // 1. Reply false if term < currentTerm (§5.1)
@@ -139,9 +159,43 @@ public class Server implements RemoteServerInterface {
         if((votedFor == null || votedFor.equals(candidateId))
                 && lastLogIndex >= serverState.getLastLogIndex()) {
             serverState.setVotedFor(candidateId);
+
+            // Stops [If election timeout elapses without receiving AppendEntries RPC from current leader or granting
+            // vote to candidate: convert to candidate]
+            this.serverState.receivedMsg(term);
             return new Result(currentTerm, true);
         }
 
         return new Result(currentTerm, false);
+    }
+
+    /**
+     * Updates the server state
+     * @param next The next state
+     */
+    public void updateState(State next) {
+        this.serverState = next;
+    }
+
+    public void requestElection(Thread starter) {
+        for (Map.Entry<Integer, RemoteServerInterface> entry : this.cluster.entrySet()) {
+
+        }
+    }
+
+    private void askForVote(Thread starter, RemoteServerInterface server){
+        try {
+            Result r = server.requestVote(this.serverState.getCurrentTerm(), this.id, this.serverState.getLastLogIndex(), this.serverState.getLogger().getLastIndex());
+            if(r.success()) {
+                this.serverState.incrementVotes(starter);
+            }
+        } catch (RemoteException e) {
+            e.printStackTrace();
+        }
+
+    }
+
+    public int getClusterSize() {
+        return cluster.size();
     }
 }
