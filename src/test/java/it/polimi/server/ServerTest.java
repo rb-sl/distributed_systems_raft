@@ -1,5 +1,6 @@
 package it.polimi.server;
 
+import it.polimi.networking.messages.AppendEntries;
 import it.polimi.server.log.LogEntry;
 import org.junit.jupiter.api.Test;
 
@@ -18,14 +19,14 @@ class ServerTest {
         ent.put(2, new LogEntry(0, "x", 3));
         ent.put(3, new LogEntry(0, "x", 4));
 
-        s.appendEntries(0, 1, null, null, ent, null);
+        s.appendEntries(new AppendEntries(0, null, 0, 1, null, null, ent, null));
 
         s.getServerState().getLogger().printLog();
 
         SortedMap<Integer, LogEntry> ent2 = new TreeMap<>();
         ent2.put(2, new LogEntry(1, "x", 4));
 
-        s.appendEntries(0, 1, 1, 0, ent2, null);
+        s.appendEntries(new AppendEntries(1, null, 0, 1, 1, 0, ent2, null));
 
         s.getServerState().getLogger().printLog();
     }

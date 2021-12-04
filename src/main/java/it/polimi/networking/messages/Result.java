@@ -1,7 +1,16 @@
 package it.polimi.networking.messages;
 
-import java.io.Serializable;
+import lombok.Getter;
 
-public record Result(int term, boolean success) implements Serializable {
+@Getter
+public class Result extends Message {
+    private int term;
+    private boolean success;
 
+    public Result(Integer requestNumber, int term, boolean success) {
+        super.messageType = Type.Result;
+        super.requestNumber = requestNumber;
+        this.term = term;
+        this.success = success;
+    }
 }

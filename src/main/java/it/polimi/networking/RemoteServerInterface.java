@@ -33,9 +33,9 @@ public interface RemoteServerInterface extends Remote {
          * @param prevLogTerm Term of prevLogIndex entry
          * @param entries Log entries to store (empty for heartbeat; may send more than one for efficiency)
          * @param leaderCommit leader’s commitIndex
-         * @return The Result object, with term: currentTerm, for leader to update itself, success: true if follower contained entry matching prevLogIndex and prevLogTerm
+         * @return Request number
          */
-        Result appendEntries(int term, Integer leaderId, Integer prevLogIndex, Integer prevLogTerm, SortedMap<Integer, LogEntry> entries, Integer leaderCommit) throws RemoteException;
+        int appendEntries(RemoteServerInterface origin, int term, Integer leaderId, Integer prevLogIndex, Integer prevLogTerm, SortedMap<Integer, LogEntry> entries, Integer leaderCommit) throws RemoteException;
 
         /**
          *
@@ -43,8 +43,10 @@ public interface RemoteServerInterface extends Remote {
          * @param candidateId Candidate requesting vote
          * @param lastLogIndex Index of candidate’s last log entry (§5.4)
          * @param lastLogTerm term of candidate’s last log entry (§5.4)
-         * @return term: currentTerm, for candidate to update itself; success (voteGranted): true means candidate received vote
+         * @return Request number
          * @throws RemoteException Una cosa di RMI da mettere sempre, se no si incazza
          */
-        Result requestVote(int term, Integer candidateId, Integer lastLogIndex, Integer lastLogTerm) throws RemoteException;
+        int requestVote(RemoteServerInterface origin, int term, Integer candidateId, Integer lastLogIndex, Integer lastLogTerm) throws RemoteException;
+
+        void reply(Result result) throws RemoteException;
 }

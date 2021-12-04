@@ -4,6 +4,9 @@ import com.google.gson.Gson;
 import com.google.gson.JsonIOException;
 import com.google.gson.JsonSyntaxException;
 import com.google.gson.reflect.TypeToken;
+import it.polimi.networking.messages.Message;
+import it.polimi.networking.messages.Result;
+import it.polimi.networking.messages.StateTransition;
 import it.polimi.server.Server;
 import it.polimi.server.log.LogEntry;
 import it.polimi.server.log.Logger;
@@ -12,16 +15,21 @@ import lombok.Setter;
 
 import java.io.*;
 import java.lang.reflect.Type;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.NoSuchElementException;
-import java.util.Objects;
 
 public abstract class State {
+
+    /**
+     *The state's role
+     */
+    public enum Role {
+        Leader, Follower, Candidate
+    }
 
     /**
      * The election timeout
@@ -34,11 +42,13 @@ public abstract class State {
      */
     @Getter @Setter
     protected int currentTerm;
+
     /**
      * CandidateId that received vote in current term (or null if none)
      */
     @Getter @Setter
     protected Integer votedFor;
+
     /**
      * Log entries; each entry contains command for state machine, and term when entry was received by leader (first index is 1)
      */
@@ -135,6 +145,11 @@ public abstract class State {
         System.out.println(this.variables);
     }
 
+    /**
+     *Write the last commit on file
+     * @param toWrite What to write
+     * @throws IOException When there's an error in input output functions
+     */
     private void writeCommit(String toWrite) throws IOException {
         Files.write(storage, toWrite.getBytes());
     }
@@ -202,13 +217,14 @@ public abstract class State {
         // If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower (§5.1)
         if(term > currentTerm) {
             currentTerm = term;
-            this.server.updateState(new Follower(server, this.currentTerm, this.votedFor, this.logger,
-                    this.commitIndex, this.lastApplied, this.variables));
+            this.server.enqueue(new StateTransition(Role.Follower));
         }
     }
 
-    // todo change from append (remote call) to local notification?
-
+    /**
+     * Receives an append message
+     * @param term The term
+     */
     public void receivedAppend(int term) {
         receivedMsg(term);
     }
@@ -218,5 +234,31 @@ public abstract class State {
      */
     public synchronized void incrementVotes() {}
 
+    /**
+     * Process the message's result
+     * @param type The message type
+     * @param result The result
+     */
+    public void processResult(Message.Type type, Result result) {
+        receivedMsg(result.getTerm());
+    }
 
+    /**
+     * Stop running election timers
+     */
+    public void stopTimers() {}
+
+    @Override
+    public String toString() {
+        return "State{\n" +
+                "       'state': '" + this.getClass() +
+                "',\n       'currentTerm':'" + currentTerm +
+                "',\n        'votedFor':'" + votedFor +
+                "',\n        'logger':'" + logger +
+                "',\n        'commitIndex':'" + commitIndex +
+                "',\n        'lastApplied':'" + lastApplied +
+                "',\n        'variables':'" + variables +
+                "',\n        'storage':'" + storage +
+                "'\n    }";
+    }
 }
