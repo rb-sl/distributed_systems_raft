@@ -1,8 +1,10 @@
 package it.polimi.server.state;
 
+import it.polimi.networking.RemoteServerInterface;
 import it.polimi.server.Server;
 import it.polimi.server.log.Logger;
 
+import java.rmi.RemoteException;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -24,5 +26,9 @@ public class Leader extends State {
         super(server, currentTerm, votedFor, logger, commitIndex, lastApplied, variables);
         nextIndex = new HashMap<>();
         matchIndex = new HashMap<>();
+
+        System.out.println(Thread.currentThread().getId() + " [!] Changed to LEADER");
+
+        this.server.startKeepAlive();
     }
 }

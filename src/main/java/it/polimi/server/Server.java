@@ -4,6 +4,7 @@ import it.polimi.networking.RemoteServerInterface;
 import it.polimi.networking.messages.Result;
 import it.polimi.server.log.LogEntry;
 import it.polimi.server.state.Follower;
+import it.polimi.server.state.Leader;
 import it.polimi.server.state.State;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -39,8 +40,22 @@ public class Server implements RemoteServerInterface {
     @Getter @Setter
     private int id;
 
+    /**
+     * List of election threads.
+     * Used to ask for votes
+     */
+    List<Thread> electionThreads;
+
+    /**
+     * Class constructor which performs the following actions:
+     * <ul>
+     *      <li>Init cluster-map and electionThreads-list.</li>
+     *      <li>If possible locates RMI registry and bind to it, otherwise create a new one</li>
+     * </ul>
+     */
     public Server() {
         this.cluster = new HashMap<>();
+        this.electionThreads = new ArrayList<>();
 
         try {
             this.selfInterface = (RemoteServerInterface) UnicastRemoteObject.exportObject(this, 0);
@@ -54,6 +69,7 @@ public class Server implements RemoteServerInterface {
                 RemoteServerInterface leader = ap.getLeader();
                 this.id = leader.addToCluster(this.selfInterface);
             } catch (RemoteException e) {
+                System.err.println("Creating RMI registry");
                 registry = LocateRegistry.createRegistry(1099);
                 this.id = ThreadLocalRandom.current().nextInt(0, 10000);
             }
@@ -76,25 +92,38 @@ public class Server implements RemoteServerInterface {
      */
     public RemoteServerInterface getLeader() {
         return this.selfInterface;
-    }
+    } //todo change to actual leader
 
     /**
      * {@inheritDoc}
      */
     public int addToCluster(RemoteServerInterface follower) throws RemoteException {
-        int id = ThreadLocalRandom.current().nextInt(0, 10000);
+        int id = ThreadLocalRandom.current().nextInt(0, 10000); // todo while(exists) repeat
+        System.err.println("Adding to cluster");
 
+        System.err.println(Thread.currentThread().getId() + " Add cluster");
+        Thread t = new Thread(()->keepAlive(follower));
+        t.start();
+
+        // Adds self to follower
+        follower.addToCluster(id, this); // todo ok or need to return?
+
+        // Adds to all others
         for(Map.Entry<Integer, RemoteServerInterface> entry: cluster.entrySet()) {
             entry.getValue().addToCluster(id, follower);
         }
 
+        // Adds to self
         addToCluster(id, follower);
 
         return id;
     }
 
-    public void addToCluster(int id, RemoteServerInterface follower) {
-        cluster.put(id, follower);
+    /**
+     * {@inheritDoc}
+     */
+    public void addToCluster(int id, RemoteServerInterface server) {
+        cluster.put(id, server); // todo synchronize on cluster?
     }
 
     /**
@@ -105,16 +134,18 @@ public class Server implements RemoteServerInterface {
 
         // Stops [If election timeout elapses without receiving AppendEntries RPC from current leader or granting
         // vote to candidate: convert to candidate]
-        this.serverState.receivedMsg(term);
+        this.serverState.receivedAppend(term);
 
         // 1. Reply false if term < currentTerm (§5.1)
         if(term < currentTerm) {
+            System.out.println("AppendEntries ignored: term " + term + " < " + currentTerm);
             return new Result(currentTerm, false);
         }
 
         // 2. Reply false if log does not contain an entry at prevLogIndex
         // whose term matches prevLogTerm (§5.3)
         if(prevLogTerm != null && !prevLogTerm.equals(this.serverState.getLogger().termAtPosition(prevLogIndex))) {
+            System.out.println("AppendEntries ignored: no log entry at prevLogIndex = " + prevLogIndex);
             return new Result(currentTerm, false);
         }
 
@@ -122,7 +153,7 @@ public class Server implements RemoteServerInterface {
         // delete the existing entry and all that follow it (§5.3)
         for(Map.Entry<Integer, LogEntry> entry : newEntries.entrySet()) {
             if(this.serverState.getLogger().containConflict(entry.getKey(), entry.getValue().getTerm())) {
-                this.serverState.getLogger().deleteFrom(entry.getKey());
+                this.serverState.getLogger().deleteFrom(entry.getKey()); // todo works also for thread 1?
             }
         }
 
@@ -163,6 +194,8 @@ public class Server implements RemoteServerInterface {
             // Stops [If election timeout elapses without receiving AppendEntries RPC from current leader or granting
             // vote to candidate: convert to candidate]
             this.serverState.receivedMsg(term);
+
+            System.out.println("[ELECTION] Voted for " + candidateId);
             return new Result(currentTerm, true);
         }
 
@@ -173,29 +206,87 @@ public class Server implements RemoteServerInterface {
      * Updates the server state
      * @param next The next state
      */
-    public void updateState(State next) {
+    public synchronized void updateState(State next) {
         this.serverState = next;
     }
 
-    public void requestElection(Thread starter) {
-        for (Map.Entry<Integer, RemoteServerInterface> entry : this.cluster.entrySet()) {
+    /**
+     * Starts election process
+     */
+    public synchronized void startElection() {
+        for(Thread t: electionThreads) {
+            t.interrupt();
+        }
+        electionThreads.clear();
 
+        Thread thread;
+        for (Map.Entry<Integer, RemoteServerInterface> entry : this.cluster.entrySet()) {
+            thread = new Thread(() -> askForVote(entry.getValue()));
+            thread.start();
+            electionThreads.add(thread);
         }
     }
 
-    private void askForVote(Thread starter, RemoteServerInterface server){
+    /**
+     * Send a message to a server to ask for its vote
+     * @param server The server
+     */
+    private synchronized void askForVote(RemoteServerInterface server){
         try {
-            Result r = server.requestVote(this.serverState.getCurrentTerm(), this.id, this.serverState.getLastLogIndex(), this.serverState.getLogger().getLastIndex());
+            int term;
+            try {
+                term = this.serverState.getLogger().getLastIndex();
+            } catch (NoSuchElementException e) {
+                term = -1;
+            }
+            Result r = server.requestVote(this.serverState.getCurrentTerm(), this.id, this.serverState.getLastLogIndex(), term);
             if(r.success()) {
-                this.serverState.incrementVotes(starter);
+                this.serverState.incrementVotes();
             }
         } catch (RemoteException e) {
             e.printStackTrace();
         }
-
     }
 
+    /**
+     * Get the size of the server cluster (considering itself)
+     * @return The cluster size
+     */
     public int getClusterSize() {
-        return cluster.size();
+        return cluster.size() + 1; // +1 to consider self
+    }
+
+    /**
+     * Start keep-alive process
+     */
+    public void startKeepAlive() {
+        System.err.println(this.serverState.getClass());
+
+         Thread thread;
+         for(Map.Entry<Integer, RemoteServerInterface> entry: cluster.entrySet()) {
+             thread = new Thread(() -> keepAlive(entry.getValue()));
+             thread.start();
+         }
+    }
+
+    /**
+     * Keeps alive the connection a connection
+     * @param r The remote server interface to keep alive
+     */
+    public void keepAlive(RemoteServerInterface r) {
+        System.err.println(this.serverState.getClass());
+        while(this.serverState.getClass().toString().equals(Leader.class.toString())) {
+            try {
+                r.appendEntries(this.serverState.getCurrentTerm(), this.id, null,
+                        null, null, null);
+            } catch (RemoteException e) {
+                e.printStackTrace();
+            }
+            try {
+                Thread.sleep(10);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }
     }
 }

@@ -80,6 +80,23 @@ public abstract class State {
     protected Server server;
 
     /**
+     * Init constructor
+     * @param server The server
+     */
+    public State(Server server) {
+        this.setCommitIndex(0);
+        this.setCurrentTerm(-1);
+        this.setVotedFor(null);
+        this.setLogger(new Logger());
+
+        this.setCommitIndex(0);
+        this.setLastApplied(0);
+
+        restoreVars();
+        this.server = server;
+    }
+
+    /**
      * Parametric constructor
      * @param server The server
      * @param currentTerm The current term
@@ -98,23 +115,8 @@ public abstract class State {
         this.commitIndex = commitIndex;
         this.lastApplied = lastApplied;
         this.variables = variables;
-    }
 
-    /**
-     * Init constructor
-     * @param server The server
-     */
-    public State(Server server) {
-        this.setCommitIndex(0);
-        this.setCurrentTerm(-1);
-        this.setVotedFor(null);
-        this.setLogger(new Logger());
-
-        this.setCommitIndex(0);
-        this.setLastApplied(0);
-
-        restoreVars();
-        this.server = server;
+        server.updateState(this);
     }
 
     /**
@@ -205,8 +207,16 @@ public abstract class State {
         }
     }
 
+    // todo change from append (remote call) to local notification?
+
+    public void receivedAppend(int term) {
+        receivedMsg(term);
+    }
+
     /**
      * Increment the count of received votes
      */
-    public synchronized void incrementVotes(Thread starter) {}
+    public synchronized void incrementVotes() {}
+
+
 }

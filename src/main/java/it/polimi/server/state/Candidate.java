@@ -1,15 +1,11 @@
 package it.polimi.server.state;
 
-import it.polimi.networking.RemoteServerInterface;
-import it.polimi.networking.messages.Result;
 import it.polimi.server.Server;
 import it.polimi.server.log.Logger;
 
 import java.util.Map;
-import java.util.Random;
 import java.util.Timer;
 import java.util.TimerTask;
-import java.util.concurrent.TimeUnit;
 
 public class Candidate extends State {
 
@@ -19,12 +15,21 @@ public class Candidate extends State {
     private final Timer electionTimer;
 
     /**
+     * Answer to the Ultimate Question of Life, the Universe, and Everything
+     */
+    private static Integer x = 42;
+
+    /**
      * Number of received votes
      */
     private int nVotes;
 
+    private Boolean receivedAppend;
+
     public Candidate(Server server, int currentTerm, Integer votedFor, Logger logger, int commitIndex, int lastApplied, Map<String, Integer> variables) {
         super(server, currentTerm, votedFor, logger, commitIndex, lastApplied, variables);
+
+        System.out.println(Thread.currentThread().getId() + " [!] Changed to CANDIDATE");
         this.electionTimer = new Timer();
         // On conversion to candidate, start election:
         startElection();
@@ -33,38 +38,43 @@ public class Candidate extends State {
     /**
      * Starts the election process
      */
-    private void startElection() {
-        // todo fix
-//        float timeout;
-//        try {
-//            while (true) {
-                // Increment currentTerm
-                super.currentTerm++;
+    private synchronized void startElection() {
+        while(true) {
+            super.currentTerm++;
 
-                // Vote for self
-                nVotes = 1;
+            receivedAppend = false;
 
-                // Reset election timer
-                startTimer();
+            System.out.println("[ELECTION] Starting new election in term " + currentTerm);
 
-                // Send RequestVote RPCs to all other servers
+            // Vote for self
+            nVotes = 0;
+            incrementVotes();
+            super.setVotedFor(this.server.getId());
 
-                // Start threads for requesting
-                this.server.requestElection(Thread.currentThread());
+            // Reset election timer
+//            startTimer();
 
-                // Sleep for randomized timeout between ELECTION_TIMEOUT/2 and ELECTION_TIMEOUT
-//                timeout = 0.5F + new Random().nextFloat() * 0.5F;
-//                TimeUnit.MILLISECONDS.sleep((long) timeout * ELECTION_TIMEOUT);
-//            }
-//        } catch (InterruptedException e) {
-//            if(nVotes > server.getClusterSize() / 2) {
-//                server.updateState(new Leader(server, currentTerm, votedFor, logger,
-//                        commitIndex, lastApplied, variables));
-//            } else {
-//                server.updateState(new Follower(server, currentTerm, votedFor, logger,
-//                        commitIndex, lastApplied, variables));
-//            }
-//        }
+            // Send RequestVote RPCs to all other servers
+            this.server.startElection();
+
+            try {
+                synchronized(x) {
+                    x.wait(ELECTION_TIMEOUT);
+                }
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+
+            if (receivedAppend) {
+                this.server.updateState(new Follower(server, this.currentTerm, this.votedFor, this.logger,
+                        this.commitIndex, this.lastApplied, this.variables));
+                return;
+            } else if (nVotes > server.getClusterSize() / 2) {
+                this.server.updateState(new Leader(server, currentTerm, votedFor, logger,
+                        commitIndex, lastApplied, variables));
+                return;
+            }
+        }
     }
 
     /**
@@ -72,22 +82,51 @@ public class Candidate extends State {
      */
     private void startTimer() {
         // If election timeout elapses: start new election
-        electionTimer.schedule(new TimerTask() {
-            @Override
-            public void run() {
-                startElection();
-            }
-        }, ELECTION_TIMEOUT);
+        try {
+            electionTimer.schedule(new TimerTask() {
+                @Override
+                public void run() {
+//                    startElection();
+                    synchronized (x) {
+                        x.notifyAll();
+                    }
+                }
+            }, ELECTION_TIMEOUT);
+        } catch (IllegalStateException e) {
+            System.out.println("(Candidate timer canceled)");
+        }
     }
 
     /**
      * {@inheritDoc}
      */
-    public synchronized void incrementVotes(Thread starter) {
+    public synchronized void incrementVotes() {
         nVotes++;
         if(nVotes > server.getClusterSize() / 2) {
-            // Stops on win
-            starter.interrupt();
+            electionTimer.cancel();
+            electionTimer.purge();
+
+            synchronized (x) {
+                x.notifyAll();
+            }
+//            this.server.updateState(new Leader(server, currentTerm, votedFor, logger,
+//                       commitIndex, lastApplied, variables));
         }
+        System.out.println("Votes received: " + nVotes);
+    }
+
+    @Override
+    public void receivedAppend(int term) {
+        electionTimer.cancel();
+        electionTimer.purge();
+
+        receivedAppend=true;
+
+        synchronized (x) {
+            x.notifyAll();
+        }
+//        currentTerm = term;
+//        this.server.updateState(new Follower(server, this.currentTerm, this.votedFor, this.logger,
+//                this.commitIndex, this.lastApplied, this.variables));
     }
 }

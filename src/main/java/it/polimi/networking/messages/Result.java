@@ -1,5 +1,7 @@
 package it.polimi.networking.messages;
 
-public record Result(int term, boolean success) {
+import java.io.Serializable;
+
+public record Result(int term, boolean success) implements Serializable {
 
 }
