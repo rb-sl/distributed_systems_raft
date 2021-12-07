@@ -51,7 +51,7 @@ public abstract class State {
      * CandidateId that received vote in current term (or null if none)
      */
     @Getter @Setter
-    protected Integer votedFor;
+    protected String votedFor;
 
     /**
      * Log entries; each entry contains command for state machine, and term when entry was received by leader (first index is 1)
@@ -103,10 +103,10 @@ public abstract class State {
      * Init constructor
      * @param server The server
      */
-    public State(Server server) {
-        this(server, null, null, new Logger(), null, null, null);
+    public State(Server server, Map<String, Integer> variables) {
+        this(server, null, null, new Logger(), null, null, variables);
 
-        restoreVars();
+        System.out.println("Restored variables: " + this.variables);
     }
 
     /**
@@ -119,7 +119,7 @@ public abstract class State {
      * @param lastApplied Index of highest log entry applied to state machine
      * @param variables Map of variables
      */
-    public State(Server server, Integer currentTerm, Integer votedFor, Logger logger, Integer commitIndex, Integer lastApplied,
+    public State(Server server, Integer currentTerm, String votedFor, Logger logger, Integer commitIndex, Integer lastApplied,
                  Map<String, Integer> variables) {
         this.server = server;
         this.currentTerm = currentTerm;

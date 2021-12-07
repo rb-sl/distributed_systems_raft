@@ -17,13 +17,15 @@ public interface RemoteServerInterface extends Remote {
 
         /**
          * Add the follower to the cluster
+         *
+         * @param id
          * @param follower The follower
          * @return The given ID
          * @throws RemoteException Una cosa di RMI da mettere sempre, se no si incazza
          */
-        int addToCluster(RemoteServerInterface follower) throws RemoteException;
+//        int addToCluster(String id, RemoteServerInterface follower) throws RemoteException;
 
-        void addToCluster(int id, RemoteServerInterface follower) throws RemoteException;
+//        void addToCluster(int id, RemoteServerInterface follower) throws RemoteException;
 
         /**
          *
@@ -35,7 +37,7 @@ public interface RemoteServerInterface extends Remote {
          * @param leaderCommit leader’s commitIndex
          * @return Request number
          */
-        int appendEntries(RemoteServerInterface origin, int term, Integer leaderId, Integer prevLogIndex, Integer prevLogTerm, SortedMap<Integer, LogEntry> entries, Integer leaderCommit) throws RemoteException;
+        int appendEntries(RemoteServerInterface origin, int term, String leaderId, Integer prevLogIndex, Integer prevLogTerm, SortedMap<Integer, LogEntry> entries, Integer leaderCommit) throws RemoteException;
 
         /**
          *
@@ -46,7 +48,9 @@ public interface RemoteServerInterface extends Remote {
          * @return Request number
          * @throws RemoteException Una cosa di RMI da mettere sempre, se no si incazza
          */
-        int requestVote(RemoteServerInterface origin, int term, Integer candidateId, Integer lastLogIndex, Integer lastLogTerm) throws RemoteException;
+        int requestVote(RemoteServerInterface origin, int term, String candidateId, Integer lastLogIndex, Integer lastLogTerm) throws RemoteException;
 
         void reply(Result result) throws RemoteException;
+
+        void updateCluster(String serverName, RemoteServerInterface serverInterface) throws RemoteException;
 }

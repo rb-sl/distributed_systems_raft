@@ -12,7 +12,12 @@ public class AppServer {
      * Main for the server application
      */
     public static void main(String[] args) {
-        // TODO argument for storage file path
-        server = new Server();
+    // args[0] -> name of the server and of the configuration
+        if(args.length == 1) {
+            server = new Server(args[0]);
+        }
+        else {
+            server = new Server();
+        }
     }
 }

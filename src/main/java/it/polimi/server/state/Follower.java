@@ -20,8 +20,8 @@ public class Follower extends State {
      * Init constructor
      * @param server The server
      */
-    public Follower(Server server) {
-        super(server);
+    public Follower(Server server, Map<String, Integer> variables) {
+        super(server, variables);
         this.role = Role.Follower;
         System.out.println(Thread.currentThread().getId() + " [!] Starting as FOLLOWER");
         startTimer();
@@ -39,7 +39,7 @@ public class Follower extends State {
      * Parametric constructor for follower.
      * @see State#State(Server, Integer, Integer, Logger, Integer, Integer, Map<String, Integer>)
      */
-    public Follower(Server server, Integer currentTerm, Integer votedFor, Logger logger, Integer commitIndex, Integer lastApplied, Map<String, Integer> variables) {
+    public Follower(Server server, Integer currentTerm, String votedFor, Logger logger, Integer commitIndex, Integer lastApplied, Map<String, Integer> variables) {
         super(server, currentTerm, votedFor, logger, commitIndex, lastApplied, variables);
         this.role = Role.Follower;
         System.out.println(Thread.currentThread().getId() + " [!] Changed to FOLLOWER in Term " + currentTerm);

@@ -1,0 +1,15 @@
+{
+  "name": "server1",
+  "registryIP": "127.0.0.1",
+  "registryPort": "1099",
+  "cluster": [
+    {
+      "name": "server1"
+    },
+    {
+      "name": "server2"
+    }
+  ],
+  "known_addresses": [],
+  "variables": {"ciao":1,"hey":2}
+}

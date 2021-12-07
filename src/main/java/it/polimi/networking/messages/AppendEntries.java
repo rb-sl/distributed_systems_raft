@@ -10,13 +10,13 @@ import java.util.SortedMap;
 @Getter @Setter
 public class AppendEntries extends Message {
     private Integer term;
-    private Integer leaderId;
+    private String leaderId;
     private Integer prevLogIndex;
     private Integer prevLogTerm;
     private SortedMap<Integer, LogEntry> newEntries;
     private Integer leaderCommit;
 
-    public AppendEntries(Integer requestNumber, RemoteServerInterface origin, int term, Integer leaderId,
+    public AppendEntries(Integer requestNumber, RemoteServerInterface origin, int term, String leaderId,
                          Integer prevLogIndex, Integer prevLogTerm, SortedMap<Integer, LogEntry> newEntries,
                          Integer leaderCommit) {
         super.messageType = Type.AppendEntry;

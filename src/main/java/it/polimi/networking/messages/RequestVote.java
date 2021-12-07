@@ -8,11 +8,11 @@ import lombok.Setter;
 public class RequestVote extends Message{
     private Integer requestNumber;
     private int term;
-    private Integer candidateId;
+    private String candidateId;
     private Integer lastLogIndex;
     private Integer lastLogTerm;
 
-    public RequestVote(Integer requestNumber, RemoteServerInterface origin, int term, Integer candidateId,
+    public RequestVote(Integer requestNumber, RemoteServerInterface origin, int term, String candidateId,
                        Integer lastLogIndex, Integer lastLogTerm) {
         super.messageType = Type.RequestVote;
         super.requestNumber = requestNumber;

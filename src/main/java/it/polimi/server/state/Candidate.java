@@ -26,7 +26,7 @@ public class Candidate extends State {
         this(state.server, state.currentTerm, state.votedFor, state.logger, state.commitIndex, state.lastApplied, state.variables);
     }
 
-    public Candidate(Server server, Integer currentTerm, Integer votedFor, Logger logger, Integer commitIndex, Integer lastApplied, Map<String, Integer> variables) {
+    public Candidate(Server server, Integer currentTerm, String votedFor, Logger logger, Integer commitIndex, Integer lastApplied, Map<String, Integer> variables) {
         super(server, currentTerm, votedFor, logger, commitIndex, lastApplied, variables);
 
         super.role = Role.Candidate;

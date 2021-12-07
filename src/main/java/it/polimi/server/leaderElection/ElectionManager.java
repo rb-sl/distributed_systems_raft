@@ -13,7 +13,7 @@ import java.util.Map;
 public class ElectionManager {
 
     private Server server;
-    private final Map<Integer, RemoteServerInterface> activeCluster;
+    private final Map<String, RemoteServerInterface> activeCluster;
 
     int term;
     private Integer lastLogIndex;
@@ -27,7 +27,7 @@ public class ElectionManager {
      */
     private List<Thread> electionThreads;
 
-    public ElectionManager(Server server, Map<Integer, RemoteServerInterface> cluster, int term, Integer lastLogIndex, Integer lastLogTerm) {
+    public ElectionManager(Server server, Map<String, RemoteServerInterface> cluster, int term, Integer lastLogIndex, Integer lastLogTerm) {
         this.server = server;
         this.activeCluster = cluster;
         this.electionThreads = new ArrayList<>();
@@ -48,7 +48,7 @@ public class ElectionManager {
     public void election() {
         Thread thread;
 
-        for (Map.Entry<Integer, RemoteServerInterface> entry : this.activeCluster.entrySet()) {
+        for (Map.Entry<String, RemoteServerInterface> entry : this.activeCluster.entrySet()) {
             thread = new Thread(() -> askForVote(entry.getValue(), this.term, this.lastLogIndex, this.lastLogTerm));
             electionThreads.add(thread);
             thread.start();
