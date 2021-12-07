@@ -2,118 +2,90 @@ package it.polimi.server.state;
 
 import it.polimi.networking.messages.Message;
 import it.polimi.networking.messages.Result;
+import it.polimi.networking.messages.StartElection;
 import it.polimi.networking.messages.StateTransition;
 import it.polimi.server.Server;
 import it.polimi.server.log.Logger;
 
-import java.util.Map;
-import java.util.NoSuchElementException;
-import java.util.Timer;
-import java.util.TimerTask;
+import java.util.*;
+import java.util.concurrent.ThreadLocalRandom;
 
 public class Candidate extends State {
 
     /**
      * Election timer
      */
-    private final Timer electionTimer;
-
-    /**
-     * Answer to the Ultimate Question of Life, the Universe, and Everything
-     */
-    private static final Object timeoutSync = new Object();
+    private Timer electionTimer;
 
     /**
      * Number of received votes
      */
     private static int nVotes;
 
-    /**
-     * Whether the state received an append and need to change state
-     */
-    private static Boolean receivedAppend;
-
     public Candidate(State state) {
         this(state.server, state.currentTerm, state.votedFor, state.logger, state.commitIndex, state.lastApplied, state.variables);
     }
 
-    public Candidate(Server server, int currentTerm, Integer votedFor, Logger logger, int commitIndex, int lastApplied, Map<String, Integer> variables) {
+    public Candidate(Server server, Integer currentTerm, Integer votedFor, Logger logger, Integer commitIndex, Integer lastApplied, Map<String, Integer> variables) {
         super(server, currentTerm, votedFor, logger, commitIndex, lastApplied, variables);
 
-        System.out.println(Thread.currentThread().getId() + " [!] Changed to CANDIDATE");
-        this.electionTimer = new Timer();
-        // On conversion to candidate, start election:
-//        Thread t = new Thread(this::startElection);
-//        t.start();
-        startElection();
-    }
+        super.role = Role.Candidate;
 
-    /**
-     * Start the election process
-     */
-    private synchronized void startElectionRequest() {
-        int lastLogTerm;
-        try {
-            lastLogTerm = this.getLogger().getLastIndex();
-        } catch (NoSuchElementException e) {
-            lastLogTerm = -1;
-        }
-        this.server.startElection(currentTerm, getLastLogIndex(), lastLogTerm);
+        System.out.println(Thread.currentThread().getId() + " [!] Changed to CANDIDATE in Term " + currentTerm);
+
+        // On conversion to candidate, start election:
+        election();
     }
 
     /**
      * Starts the election process
      */
-    private synchronized void startElection() {
-        while(true) {
+    private void election() {
+        // Increment currentTerm
+        if(currentTerm != null) {
             super.currentTerm++;
-            receivedAppend = false;
-
-            System.out.println(Thread.currentThread().getId() + " [ELECTION] Starting new election in term " + currentTerm);
-
-            nVotes = 0;
-
-            // Reset election timer
-            startTimer();
-
-            // Vote for self
-            super.setVotedFor(this.server.getId());
-            incrementVotes();
-
-            // Send RequestVote RPCs to all other servers
-            Thread t = new Thread(this::startElectionRequest);
-            t.start();
-            startElectionRequest();
-
-            try {
-                synchronized(timeoutSync) {
-                    timeoutSync.wait(ELECTION_TIMEOUT);
-                }
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            }
-
-            if (receivedAppend || nVotes > server.getClusterSize() / 2) {
-                return;
-            }
         }
+        else {
+            currentTerm = 0;
+        }
+        System.out.println(Thread.currentThread().getId() + " [ELECTION] Starting new election in term " + currentTerm);
+        nVotes = 0;
+
+        // Vote for self
+        super.setVotedFor(this.server.getId());
+        incrementVotes(currentTerm);
+
+        // Reset election timer
+        startTimer();
+
+        Integer lastLogTerm;
+        try {
+            lastLogTerm = this.getLogger().getLastIndex();
+        } catch (NoSuchElementException e) {
+            lastLogTerm = null;
+        }
+
+        // Send RequestVote RPCs to all other servers
+        this.server.enqueue(new StartElection(currentTerm, getLastLogIndex(), lastLogTerm));
     }
 
     /**
      * Starts election timer
      */
     private void startTimer() {
+        // Randomize timeout
+        electionTimer = new Timer();
+        int timeout = ThreadLocalRandom.current().nextInt(MIN_ELECTION_TIMEOUT, ELECTION_TIMEOUT + 1);
         // If election timeout elapses: start new election
         try {
             electionTimer.schedule(new TimerTask() {
                 @Override
                 public void run() {
-                    synchronized (timeoutSync) {
-                        timeoutSync.notifyAll();
-                    }
+                    election();
                 }
-            }, ELECTION_TIMEOUT);
+            }, timeout);
         } catch (IllegalStateException e) {
+            e.printStackTrace();
             System.out.println("(Candidate timer canceled)");
         }
     }
@@ -121,16 +93,11 @@ public class Candidate extends State {
     /**
      * {@inheritDoc}
      */
-    public synchronized void incrementVotes() {
+    public synchronized void incrementVotes(Integer term) {
         nVotes++;
+
         if(nVotes > server.getClusterSize() / 2) {
-            electionTimer.cancel();
-            electionTimer.purge();
-
-            synchronized (timeoutSync) {
-                timeoutSync.notifyAll();
-            }
-
+            stopTimers();
             this.server.enqueue(new StateTransition(Role.Leader));
         }
         System.out.println("Votes received: " + nVotes + "/" + server.getClusterSize());
@@ -141,28 +108,32 @@ public class Candidate extends State {
      */
     @Override
     public void receivedAppend(int term) {
-        electionTimer.cancel();
-        electionTimer.purge();
-
-        receivedAppend = true;
-
-        synchronized (timeoutSync) {
-            timeoutSync.notifyAll();
-        }
+        super.receivedAppend(term);
+        stopTimers();
 
         // Syncs to the leader's term
         currentTerm = term;
-        this.server.enqueue(new StateTransition(Role.Follower));
     }
 
     /**
      * {@inheritDoc}
      */
+    @Override
     public void processResult(Message.Type type, Result result) {
+        super.processResult(type, result);
         if (type == Message.Type.RequestVote) {
             if(result.isSuccess()) {
-                incrementVotes();
+                incrementVotes(result.getTerm());
             }
+        }
+    }
+
+    @Override
+    public void stopTimers() {
+        super.stopTimers();
+        if(electionTimer != null) {
+            electionTimer.cancel();
+            electionTimer.purge();
         }
     }
 }

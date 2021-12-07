@@ -2,14 +2,13 @@ package it.polimi.server;
 
 import it.polimi.networking.RemoteServerInterface;
 import it.polimi.networking.messages.*;
+import it.polimi.server.leaderElection.ElectionManager;
 import it.polimi.server.log.LogEntry;
 import it.polimi.server.state.Candidate;
 import it.polimi.server.state.Follower;
 import it.polimi.server.state.Leader;
 import it.polimi.server.state.State;
-import lombok.AccessLevel;
-import lombok.Getter;
-import lombok.Setter;
+import lombok.*;
 
 import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
@@ -35,8 +34,9 @@ public class Server implements RemoteServerInterface {
     /**
      * Reference to the leader
      */
-    @Getter @Setter
-    private RemoteServerInterface leader;
+    private static RemoteServerInterface leader;
+
+    private static final Object leaderSync = new Object();
 
     /**
      * Map of servers in the cluster
@@ -64,11 +64,7 @@ public class Server implements RemoteServerInterface {
      */
     private static final Object reqNumBlock = new Object();
 
-    /**
-     * List of election threads.
-     * Used to ask for votes
-     */
-    List<Thread> electionThreads;
+    private ElectionManager electionManager;
 
     /**
      * Class constructor which performs the following actions:
@@ -79,7 +75,6 @@ public class Server implements RemoteServerInterface {
      */
     public Server() {
         this.cluster = new HashMap<>();
-        this.electionThreads = new ArrayList<>();
         messageQueue = new LinkedBlockingQueue<>();
         outgoingRequests = new HashMap<>();
 
@@ -92,8 +87,10 @@ public class Server implements RemoteServerInterface {
                 String accessPoint = registry.list()[0];
 
                 RemoteServerInterface ap = (RemoteServerInterface) registry.lookup(accessPoint);
-                this.leader = ap.getLeader();
-                this.id = this.leader.addToCluster(this.selfInterface);
+
+                setLeader(ap.getLeader());
+                // todo rejoin previous configuration; if none available, addToCluster (cluster modification)
+                this.id = leader.addToCluster(this.selfInterface);
             } catch (RemoteException e) {
                 System.err.println("Creating RMI registry");
                 registry = LocateRegistry.createRegistry(1099);
@@ -129,11 +126,26 @@ public class Server implements RemoteServerInterface {
                         this.serverState.processResult(type, result);
                     }
                     case StateTransition -> {
+                        if(this.serverState != null) {
+                            this.serverState.stopTimers();
+                        }
+                        if(this.electionManager != null) {
+                            this.electionManager.interruptElection();
+                        }
                         switch(((StateTransition) message).getState()) {
                             case Follower -> this.updateState(new Follower(this.serverState));
                             case Leader -> this.updateState(new Leader(this.serverState));
                             case Candidate -> this.updateState(new Candidate(this.serverState));
                         }
+                    }
+                    case StartElection -> {
+                        if(electionManager != null) {
+                            electionManager.interruptElection();
+                        }
+                        StartElection startElection = (StartElection) message;
+                        electionManager = new ElectionManager(this, cluster,
+                                startElection.getTerm(), startElection.getLastLogIndex(), startElection.getLastLogTerm());
+                        electionManager.startElection();
                     }
                 }
 
@@ -147,6 +159,27 @@ public class Server implements RemoteServerInterface {
         }
     }
 
+    public RemoteServerInterface getLeader() {
+        synchronized (leaderSync) {
+            if(leader == null) {
+                try {
+                    leaderSync.wait();
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+        return leader;
+    }
+
+    public void setLeader(RemoteServerInterface leader) {
+        synchronized (leaderSync) {
+            Server.leader = leader;
+            // Wakes threads waiting to do a getLeader()
+            leaderSync.notifyAll();
+        }
+    }
+
     /**
      * {@inheritDoc}
      */
@@ -156,8 +189,6 @@ public class Server implements RemoteServerInterface {
             id = ThreadLocalRandom.current().nextInt(0, 10000);
         } while(cluster.containsKey(id));
 
-        while(leader == null) {} // todo change
-
         System.err.println("Adding to cluster");
         System.err.println(this);
 
@@ -166,11 +197,14 @@ public class Server implements RemoteServerInterface {
         t.start();
 
         // Adds self to follower
-        follower.addToCluster(id, this); // todo ok or need to return?
+        follower.addToCluster(this.id, this);
 
-        // Adds to all others
         for(Map.Entry<Integer, RemoteServerInterface> entry: cluster.entrySet()) {
+            // Adds to others
             entry.getValue().addToCluster(id, follower);
+
+            //Adds others to follower
+            follower.addToCluster(entry.getKey(), entry.getValue());
         }
 
         // Adds to self
@@ -198,6 +232,10 @@ public class Server implements RemoteServerInterface {
         }
     }
 
+    public synchronized void addRequest(Integer receipt, Message.Type messageType) {
+        outgoingRequests.put(receipt, messageType);
+    }
+
     /**
      * {@inheritDoc}
      */
@@ -214,17 +252,17 @@ public class Server implements RemoteServerInterface {
     }
 
     public Result appendEntries(AppendEntries message) {
-        int currentTerm = this.serverState.getCurrentTerm();
-
         // Set leader
-        leader = cluster.get(message.getLeaderId());
+        setLeader(cluster.get(message.getLeaderId()));
 
         // Stops [If election timeout elapses without receiving AppendEntries RPC from current leader or granting
         // vote to candidate: convert to candidate]
         this.serverState.receivedAppend(message.getTerm());
 
+        Integer currentTerm = this.serverState.getCurrentTerm();
+
         // 1. Reply false if term < currentTerm (§5.1)
-        if(message.getTerm() < currentTerm) {
+        if(currentTerm != null && message.getTerm() < currentTerm) {
             System.out.println("AppendEntries ignored: term " + message.getTerm() + " < " + currentTerm);
             return new Result(message.getRequestNumber(), currentTerm, false);
         }
@@ -283,7 +321,18 @@ public class Server implements RemoteServerInterface {
         Integer candidateId = message.getCandidateId();
         Integer lastLogIndex = message.getLastLogIndex();
 
+        this.serverState.convertOnNextTerm(term);
+
         int currentTerm = serverState.getCurrentTerm();
+
+        // [...] removed servers (those not in Cnew) can disrupt the cluster. [...]
+        // To prevent this problem, servers disregard RequestVote RPCs when they believe a current leader exists.
+        // Specifically, if a server receives a RequestVote RPC within the minimum election timeout of hearing
+        // from a current leader, it does not update its term or grant its vote.
+//        if(this.serverState.getRole() == State.Role.Leader
+//                || !State.getElapsedMinTimeout()) {
+//            return new Result(message.getRequestNumber(), currentTerm, false);
+//        }
 
         // 1. Reply false if term < currentTerm (§5.1)
         if(term < currentTerm) {
@@ -301,7 +350,7 @@ public class Server implements RemoteServerInterface {
             // vote to candidate: convert to candidate]
             this.serverState.receivedMsg(term);
 
-            System.out.println("[ELECTION] Voted for " + candidateId);
+            System.out.println("[Term " + currentTerm + "] Voted for " + candidateId);
             return new Result(message.getRequestNumber(), currentTerm, true);
         }
 
@@ -318,44 +367,7 @@ public class Server implements RemoteServerInterface {
      * @param next The next state
      */
     public synchronized void updateState(State next) {
-        this.serverState.stopTimers();
         this.serverState = next;
-    }
-
-    /**
-     * Starts election process
-     */
-    public synchronized void startElection(int term, Integer lastLogIndex, Integer lastLogTerm) {
-        Thread thread;
-        for (Map.Entry<Integer, RemoteServerInterface> entry : this.cluster.entrySet()) {
-            thread = new Thread(() -> askForVote(entry.getValue(), term, lastLogIndex, lastLogTerm));
-            thread.start();
-            electionThreads.add(thread);
-        }
-
-        for(Thread t : electionThreads) {
-            try {
-                t.join();
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            }
-        }
-
-        electionThreads.clear();
-    }
-
-    /**
-     * Send a message to a server to ask for its vote
-     * @param server The server
-     */
-    private synchronized void askForVote(RemoteServerInterface server, int term, Integer lastLogIndex, Integer lastLogTerm){
-        try {
-            int receipt = server.requestVote(this.selfInterface, term, this.id, lastLogIndex, lastLogTerm);
-
-            outgoingRequests.put(receipt, Message.Type.RequestVote);
-        } catch (RemoteException e) {
-            e.printStackTrace();
-        }
     }
 
     /**
@@ -370,8 +382,6 @@ public class Server implements RemoteServerInterface {
      * Start keep-alive process
      */
     public void startKeepAlive() {
-        System.err.println(this.serverState.getClass());
-
          Thread thread;
          for(Map.Entry<Integer, RemoteServerInterface> entry: cluster.entrySet()) {
              thread = new Thread(() -> keepAlive(entry.getValue()));
@@ -416,7 +426,6 @@ public class Server implements RemoteServerInterface {
                 "   'serverState':" + serverState.toString() +
                 "',\n   'cluster':'" + cluster.toString() +
                 "',\n   'id':'" + id +
-                "',\n   'electionThreads':'" + electionThreads.toString() +
                 "'\n}";
     }
 }

@@ -18,9 +18,8 @@ import java.lang.reflect.Type;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.NoSuchElementException;
+import java.util.*;
+import java.util.concurrent.ThreadLocalRandom;
 
 public abstract class State {
 
@@ -31,17 +30,22 @@ public abstract class State {
         Leader, Follower, Candidate
     }
 
+    @Getter
+    protected Role role;
+
     /**
      * The election timeout
      */
-    protected static final int ELECTION_TIMEOUT = 350;
+    protected static final int ELECTION_TIMEOUT = 4000; // 350;
+
+    protected static final int MIN_ELECTION_TIMEOUT = 2500; // 150;
 
     // Persistent state on all servers (Updated on stable storage before responding to RPCs)
     /**
      * Latest term server has seen (initialized to 0 on first boot, increases monotonically)
      */
     @Getter @Setter
-    protected int currentTerm;
+    protected Integer currentTerm;
 
     /**
      * CandidateId that received vote in current term (or null if none)
@@ -61,13 +65,13 @@ public abstract class State {
      * Index of highest log entry known to be committed (initialized to 0, increases monotonically)
      */
     @Getter
-    protected int commitIndex;
+    protected Integer commitIndex;
 
     /**
      * Index of highest log entry applied to state machine (initialized to 0, increases monotonically)
      */
     @Getter @Setter
-    protected int lastApplied;
+    protected Integer lastApplied;
 
     /**
      * Stored variables
@@ -89,21 +93,20 @@ public abstract class State {
      */
     protected Server server;
 
+
+    protected Timer minElectionTimer;
+
+    @Getter
+    private static Boolean elapsedMinTimeout;
+
     /**
      * Init constructor
      * @param server The server
      */
     public State(Server server) {
-        this.setCommitIndex(0);
-        this.setCurrentTerm(-1);
-        this.setVotedFor(null);
-        this.setLogger(new Logger());
-
-        this.setCommitIndex(0);
-        this.setLastApplied(0);
+        this(server, null, null, new Logger(), null, null, null);
 
         restoreVars();
-        this.server = server;
     }
 
     /**
@@ -116,7 +119,7 @@ public abstract class State {
      * @param lastApplied Index of highest log entry applied to state machine
      * @param variables Map of variables
      */
-    public State(Server server, int currentTerm, Integer votedFor, Logger logger, int commitIndex, int lastApplied,
+    public State(Server server, Integer currentTerm, Integer votedFor, Logger logger, Integer commitIndex, Integer lastApplied,
                  Map<String, Integer> variables) {
         this.server = server;
         this.currentTerm = currentTerm;
@@ -125,8 +128,7 @@ public abstract class State {
         this.commitIndex = commitIndex;
         this.lastApplied = lastApplied;
         this.variables = variables;
-
-        server.updateState(this);
+        elapsedMinTimeout = false;
     }
 
     /**
@@ -209,16 +211,21 @@ public abstract class State {
         }
     }
 
+    public void convertOnNextTerm(Integer term) {
+        // If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower (§5.1)
+        if(currentTerm == null || term > currentTerm) {
+            currentTerm = term;
+            votedFor = null;
+            this.server.enqueue(new StateTransition(Role.Follower));
+        }
+    }
+
     /**
      * Set state to follower when the term is greater than {@link State#currentTerm}
      * @param term The term of received message
      */
-    public void receivedMsg(int term) {
-        // If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower (§5.1)
-        if(term > currentTerm) {
-            currentTerm = term;
-            this.server.enqueue(new StateTransition(Role.Follower));
-        }
+    public void receivedMsg(Integer term) {
+        convertOnNextTerm(term);
     }
 
     /**
@@ -227,12 +234,13 @@ public abstract class State {
      */
     public void receivedAppend(int term) {
         receivedMsg(term);
+        startMinElectionTimer();
     }
 
     /**
      * Increment the count of received votes
      */
-    public synchronized void incrementVotes() {}
+    public synchronized void incrementVotes(Integer term) {}
 
     /**
      * Process the message's result
@@ -243,10 +251,31 @@ public abstract class State {
         receivedMsg(result.getTerm());
     }
 
+    private void startMinElectionTimer() {
+        elapsedMinTimeout = false;
+        minElectionTimer = new Timer();
+        try {
+            minElectionTimer.schedule(new TimerTask() {
+                @Override
+                public void run() {
+                    elapsedMinTimeout = true;
+                }
+            }, MIN_ELECTION_TIMEOUT);
+        } catch (IllegalStateException e) {
+            e.printStackTrace();
+            System.out.println("(Candidate timer canceled)");
+        }
+    }
+
     /**
      * Stop running election timers
      */
-    public void stopTimers() {}
+    public void stopTimers() {
+        if(minElectionTimer != null) {
+            minElectionTimer.cancel();
+            minElectionTimer.purge();
+        }
+    }
 
     @Override
     public String toString() {

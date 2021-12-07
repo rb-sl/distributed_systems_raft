@@ -7,6 +7,7 @@ import it.polimi.server.log.Logger;
 import java.util.Map;
 import java.util.Timer;
 import java.util.TimerTask;
+import java.util.concurrent.ThreadLocalRandom;
 
 public class Follower extends State {
 
@@ -21,6 +22,7 @@ public class Follower extends State {
      */
     public Follower(Server server) {
         super(server);
+        this.role = Role.Follower;
         System.out.println(Thread.currentThread().getId() + " [!] Starting as FOLLOWER");
         startTimer();
     }
@@ -35,11 +37,12 @@ public class Follower extends State {
 
     /**
      * Parametric constructor for follower.
-     * @see State#State(Server, int, Integer, Logger, int, int, Map<String, Integer>)
+     * @see State#State(Server, Integer, Integer, Logger, Integer, Integer, Map<String, Integer>)
      */
-    public Follower(Server server, int currentTerm, Integer votedFor, Logger logger, int commitIndex, int lastApplied, Map<String, Integer> variables) {
+    public Follower(Server server, Integer currentTerm, Integer votedFor, Logger logger, Integer commitIndex, Integer lastApplied, Map<String, Integer> variables) {
         super(server, currentTerm, votedFor, logger, commitIndex, lastApplied, variables);
-        System.out.println(Thread.currentThread().getId() + " [!] Changed to FOLLOWER");
+        this.role = Role.Follower;
+        System.out.println(Thread.currentThread().getId() + " [!] Changed to FOLLOWER in Term " + currentTerm);
         startTimer();
     }
 
@@ -49,32 +52,31 @@ public class Follower extends State {
     private void startTimer() {
         // If election timeout elapses without receiving AppendEntries RPC from current
         // leader or granting vote to candidate: convert to candidate
+        int timeout = ThreadLocalRandom.current().nextInt(MIN_ELECTION_TIMEOUT, ELECTION_TIMEOUT + 1);
         electionTimer = new Timer();
         electionTimer.schedule(new TimerTask() {
             @Override
             public void run() {
-                electionTimer.cancel();
-                electionTimer.purge();
+                stopTimers();
                 server.enqueue(new StateTransition(Role.Candidate));
             }
-        }, ELECTION_TIMEOUT);
+        }, timeout);
     }
 
     /**
      * Handler for keep-alive event. Restarts timer
      */
     public void onKeepAlive() {
-        electionTimer.cancel();
-        electionTimer.purge();
+        stopTimers();
         startTimer();
     }
 
     /**
-     * Like {@link State#receivedMsg(int)}, but calls {@link Follower#onKeepAlive()}
+     * Like {@link State#receivedMsg(Integer)}, but calls {@link Follower#onKeepAlive()}
      * @param term The term of received message
      */
     @Override
-    public void receivedMsg(int term) {
+    public void receivedMsg(Integer term) {
         super.receivedMsg(term);
         onKeepAlive();
     }
@@ -84,6 +86,7 @@ public class Follower extends State {
      */
     @Override
     public void stopTimers() {
+        super.stopTimers();
         electionTimer.cancel();
         electionTimer.purge();
     }

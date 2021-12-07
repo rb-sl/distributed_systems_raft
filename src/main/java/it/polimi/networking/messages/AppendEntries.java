@@ -9,7 +9,7 @@ import java.util.SortedMap;
 
 @Getter @Setter
 public class AppendEntries extends Message {
-    private int term;
+    private Integer term;
     private Integer leaderId;
     private Integer prevLogIndex;
     private Integer prevLogTerm;

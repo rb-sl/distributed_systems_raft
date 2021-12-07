@@ -27,12 +27,14 @@ public class Leader extends State {
         this(state.server, state.currentTerm, state.votedFor, state.logger, state.commitIndex, state.lastApplied, state.variables);
     }
 
-    public Leader(Server server, int currentTerm, Integer votedFor, Logger logger, int commitIndex, int lastApplied, Map<String, Integer> variables) {
+    public Leader(Server server, Integer currentTerm, Integer votedFor, Logger logger, Integer commitIndex, Integer lastApplied, Map<String, Integer> variables) {
         super(server, currentTerm, votedFor, logger, commitIndex, lastApplied, variables);
+        this.role = Role.Leader;
+
         nextIndex = new HashMap<>();
         matchIndex = new HashMap<>();
 
-        System.out.println(Thread.currentThread().getId() + " [!] Changed to LEADER");
+        System.out.println(Thread.currentThread().getId() + " [!] Changed to LEADER in Term " + currentTerm);
 
         this.server.setLeader(this.server);
         this.server.startKeepAlive();
@@ -42,9 +44,10 @@ public class Leader extends State {
      * {@inheritDoc}
      */
     public void processResult(Message.Type type, Result result) {
+        super.processResult(type, result);
         if (type == Message.Type.AppendEntry) {
             if(result.isSuccess()) {
-                incrementVotes();
+
             }
         }
     }
