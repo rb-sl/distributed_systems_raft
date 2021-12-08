@@ -19,7 +19,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
-import java.util.concurrent.ThreadLocalRandom;
 
 public abstract class State {
 
@@ -36,9 +35,9 @@ public abstract class State {
     /**
      * The election timeout
      */
-    protected static final int ELECTION_TIMEOUT = 4000; // 350;
+    protected static final int ELECTION_TIMEOUT = 350;
 
-    protected static final int MIN_ELECTION_TIMEOUT = 2500; // 150;
+    protected static final int MIN_ELECTION_TIMEOUT = 150;
 
     // Persistent state on all servers (Updated on stable storage before responding to RPCs)
     /**

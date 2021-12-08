@@ -41,6 +41,8 @@ public class Server implements RemoteServerInterface {
      */
     private RemoteServerInterface selfInterface;
 
+    private static Registry localRegistry;
+
     /**
      * Reference to the leader
      */
@@ -75,6 +77,8 @@ public class Server implements RemoteServerInterface {
     private static final Object reqNumBlock = new Object();
 
     private ElectionManager electionManager;
+
+    private keepAliveManager keepAliveManager;
 
     private final Gson gson = new Gson();
 
@@ -117,12 +121,13 @@ public class Server implements RemoteServerInterface {
             }
             this.selfInterface = (RemoteServerInterface) UnicastRemoteObject.exportObject(this, port);
 
-            Registry localRegistry = LocateRegistry.getRegistry();
+            localRegistry = LocateRegistry.getRegistry();
             try {
                 localRegistry.bind(serverName, this.selfInterface);
             } catch (AlreadyBoundException e) {
                 localRegistry.rebind(serverName, this.selfInterface);
             } catch (RemoteException e) {
+                e.printStackTrace();
                 System.err.println("Creating local RMI registry");
                 Integer localPort = serverConfiguration.getRegistryPort();
                 if(localPort == null) {
@@ -414,11 +419,16 @@ public class Server implements RemoteServerInterface {
         enqueue(result);
     }
 
+    public void startKeepAlive() {
+        this.keepAliveManager = new keepAliveManager(this, cluster);
+        this.keepAliveManager.startKeepAlive();
+    }
+
     @Override
     public synchronized void updateCluster(String serverName, RemoteServerInterface serverInterface) {
         this.cluster.put(serverName, serverInterface);
         if(this.serverState.getRole() == State.Role.Leader) {
-            startKeepAlive();
+            this.keepAliveManager.startKeepAlive(serverName, serverInterface);
         }
     }
 
@@ -436,48 +446,6 @@ public class Server implements RemoteServerInterface {
      */
     public int getClusterSize() {
         return cluster.size() + 1; // +1 to consider self
-    }
-
-    /**
-     * Start keep-alive process
-     */
-    public void startKeepAlive() {
-         Thread thread;
-         for(Map.Entry<String, RemoteServerInterface> entry: cluster.entrySet()) {
-             thread = new Thread(() -> keepAlive(entry.getValue()));
-             thread.start();
-         }
-    }
-
-    /**
-     * Keeps alive the connection a connection
-     * @param server The remote server interface to keep alive
-     */
-    public void keepAlive(RemoteServerInterface server) {
-        Result result;
-        while(true) {
-            try {
-                // todo do I need the result? Option: keep as separate object, read result, stop if false
-//                result = server.appendEntries(this.serverState.getCurrentTerm(), this.id, null,
-//                        null, null, null);
-
-                int r = server.appendEntries(this.selfInterface, this.serverState.getCurrentTerm(), this.id, null,
-                        null, null, null);
-
-                // If a follower has a different term and thus this is not the leader anymore,
-                // the thread stops todo consider
-//                if(!result.success) {
-//                    return;
-//                }
-            } catch (RemoteException e) {
-                e.printStackTrace();
-            }
-            try {
-                Thread.sleep(10);
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            }
-        }
     }
 
     @Override
