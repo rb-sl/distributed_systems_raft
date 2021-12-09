@@ -53,6 +53,7 @@ public class Server implements RemoteServerInterface {
     /**
      * Map of servers in the cluster
      */
+    @Getter
     private final Map<String, RemoteServerInterface> cluster;
 
     private static BlockingQueue<Message> messageQueue;
@@ -127,7 +128,7 @@ public class Server implements RemoteServerInterface {
             } catch (AlreadyBoundException e) {
                 localRegistry.rebind(serverName, this.selfInterface);
             } catch (RemoteException e) {
-                e.printStackTrace();
+//                e.printStackTrace();
                 System.err.println("Creating local RMI registry");
                 Integer localPort = serverConfiguration.getRegistryPort();
                 if(localPort == null) {
@@ -179,24 +180,30 @@ public class Server implements RemoteServerInterface {
                     case RequestVote -> result = requestVote((RequestVote) message);
                     case Result -> {
                         result = (Result) message;
-                        Message.Type type = outgoingRequests.remove(result.getRequestNumber());
-                        this.serverState.processResult(type, result);
+                        if(outgoingRequests.containsKey(result.getRequestNumber())) {
+                            Message.Type type = outgoingRequests.remove(result.getRequestNumber());
+                            this.serverState.processResult(type, result);
+                        }
+                        else {
+                            // If the request was not added yet it is re-enqueued
+                            messageQueue.put(result);
+                        }
                     }
                     case StateTransition -> {
-                        if(this.serverState != null) {
+                        if (this.serverState != null) {
                             this.serverState.stopTimers();
                         }
-                        if(this.electionManager != null) {
+                        if (this.electionManager != null) {
                             this.electionManager.interruptElection();
                         }
-                        switch(((StateTransition) message).getState()) {
+                        switch (((StateTransition) message).getState()) {
                             case Follower -> this.updateState(new Follower(this.serverState));
                             case Leader -> this.updateState(new Leader(this.serverState));
                             case Candidate -> this.updateState(new Candidate(this.serverState));
                         }
                     }
                     case StartElection -> {
-                        if(electionManager != null) {
+                        if (electionManager != null) {
                             electionManager.interruptElection();
                         }
                         StartElection startElection = (StartElection) message;
@@ -204,13 +211,33 @@ public class Server implements RemoteServerInterface {
                                 startElection.getTerm(), startElection.getLastLogIndex(), startElection.getLastLogTerm());
                         electionManager.startElection();
                     }
+                    case WriteRequest -> {
+                        WriteRequest writeRequest = (WriteRequest) message;
+                        if(this.serverState.getRole() == State.Role.Leader) {
+                            // If command received from client: append entry to local log, respond after entry
+                            // applied to state machine (§5.3)
+                            serverState.getLogger().addEntry(serverState.getCurrentTerm(), writeRequest.getVariable(), writeRequest.getValue());
+                            serverState.logAdded();
+                        }
+                        else {
+                            leader.write(writeRequest.getVariable(), writeRequest.getValue());
+                        }
+                    }
                 }
 
-                if(message.getMessageType() == Message.Type.AppendEntry
+                // Replies to other servers
+                if (message.getMessageType() == Message.Type.AppendEntry
                         || message.getMessageType() == Message.Type.RequestVote) {
                     message.getOrigin().reply(result);
                 }
-            } catch (InterruptedException | RemoteException e) {
+                // todo Replies to client requests
+
+            } catch (InterruptedException e) {
+                System.err.println(Thread.currentThread().getId() + " - Thread interrupted, terminating");
+//                this.keepAliveManager.stopKeepAlive(); todo
+                this.electionManager.interruptElection();
+                return;
+            } catch (RemoteException e) {
                 e.printStackTrace();
             }
         }
@@ -400,14 +427,16 @@ public class Server implements RemoteServerInterface {
         //    least as up-to-date as receiver’s log, grant vote (§5.2, §5.4)
         String votedFor = serverState.getVotedFor();
         if((votedFor == null || votedFor.equals(candidateId))
-                && lastLogIndex >= serverState.getLastLogIndex()) {
+                && ((lastLogIndex == null && serverState.getLastLogIndex() == null)
+                    || (lastLogIndex != null
+                        && (serverState.getLastLogIndex() == null || lastLogIndex >= serverState.getLastLogIndex())))) {
             serverState.setVotedFor(candidateId);
 
             // Stops [If election timeout elapses without receiving AppendEntries RPC from current leader or granting
             // vote to candidate: convert to candidate]
             this.serverState.receivedMsg(term);
 
-            System.out.println("[Term " + currentTerm + "] Voted for " + candidateId);
+            System.out.println(Thread.currentThread().getId() + " [Term " + currentTerm + "] Voted for " + candidateId);
             return new Result(message.getRequestNumber(), currentTerm, true);
         }
 
@@ -427,9 +456,25 @@ public class Server implements RemoteServerInterface {
     @Override
     public synchronized void updateCluster(String serverName, RemoteServerInterface serverInterface) {
         this.cluster.put(serverName, serverInterface);
-        if(this.serverState.getRole() == State.Role.Leader) {
-            this.keepAliveManager.startKeepAlive(serverName, serverInterface);
+        if(this.serverState != null && this.serverState.getRole() == State.Role.Leader) {
+            this.keepAliveManager.startKeepAlive(serverName, serverInterface); // todo might not have correct cluster
+            this.serverState.startReplication(serverName, serverInterface);
         }
+    }
+
+    @Override
+    public Integer read(String variable) throws RemoteException {
+        return 42;
+    }
+
+    @Override
+    public void write(String variable, Integer value) throws RemoteException {
+        Integer currentRequest;
+        synchronized (reqNumBlock) {
+            currentRequest = requestNumber;
+            requestNumber++;
+        }
+        enqueue(new WriteRequest(currentRequest, variable, value));
     }
 
     /**
@@ -446,6 +491,10 @@ public class Server implements RemoteServerInterface {
      */
     public int getClusterSize() {
         return cluster.size() + 1; // +1 to consider self
+    }
+
+    public Set<String> getServersInCluster() {
+        return cluster.keySet();
     }
 
     @Override

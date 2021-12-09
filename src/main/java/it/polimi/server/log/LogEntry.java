@@ -2,17 +2,28 @@ package it.polimi.server.log;
 
 import lombok.Getter;
 
-public class LogEntry {
+import java.io.Serializable;
+
+public class LogEntry implements Serializable {
     @Getter
-    private final int term;
+    public final int term;
     @Getter
-    private final String varName;
+    public final String varName;
     @Getter
-    private final Integer value;
+    public final Integer value;
 
     public LogEntry(int term, String varName, Integer value) {
         this.term = term;
         this.varName = varName;
         this.value = value;
+    }
+
+    @Override
+    public String toString() {
+        return "LogEntry{" +
+                "term=" + term +
+                ", varName='" + varName + '\'' +
+                ", value=" + value +
+                '}';
     }
 }

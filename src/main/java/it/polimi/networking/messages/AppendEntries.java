@@ -7,7 +7,7 @@ import lombok.Setter;
 
 import java.util.SortedMap;
 
-@Getter @Setter
+@Getter
 public class AppendEntries extends Message {
     private Integer term;
     private String leaderId;

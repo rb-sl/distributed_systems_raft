@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.JsonIOException;
 import com.google.gson.JsonSyntaxException;
 import com.google.gson.reflect.TypeToken;
+import it.polimi.networking.RemoteServerInterface;
 import it.polimi.networking.messages.Message;
 import it.polimi.networking.messages.Result;
 import it.polimi.networking.messages.StateTransition;
@@ -166,11 +167,11 @@ public abstract class State {
      * Gets the last index of the logs map
      * @return The last map key
      */
-    public int getLastLogIndex() {
+    public Integer getLastLogIndex() {
         try{
             return logger.getLastIndex();
         } catch(NoSuchElementException e) {
-            return -1;
+            return null;
         }
     }
 
@@ -276,7 +277,11 @@ public abstract class State {
         }
     }
 
-    @Override
+    public void startReplication(String serverId, RemoteServerInterface serverInterface) {}
+
+    public void logAdded() {}
+
+        @Override
     public String toString() {
         return "State{\n" +
                 "       'state': '" + this.getClass() +

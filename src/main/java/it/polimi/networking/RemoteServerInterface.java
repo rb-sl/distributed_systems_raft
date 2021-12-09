@@ -53,4 +53,8 @@ public interface RemoteServerInterface extends Remote {
         void reply(Result result) throws RemoteException;
 
         void updateCluster(String serverName, RemoteServerInterface serverInterface) throws RemoteException;
+
+        // Methods called by clients
+        Integer read(String variable) throws RemoteException;
+        void write(String variable, Integer value) throws RemoteException;
 }

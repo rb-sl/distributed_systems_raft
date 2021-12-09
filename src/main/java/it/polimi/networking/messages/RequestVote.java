@@ -6,7 +6,6 @@ import lombok.Setter;
 
 @Getter @Setter
 public class RequestVote extends Message{
-    private Integer requestNumber;
     private int term;
     private String candidateId;
     private Integer lastLogIndex;
@@ -17,7 +16,6 @@ public class RequestVote extends Message{
         super.messageType = Type.RequestVote;
         super.requestNumber = requestNumber;
         super.origin = origin;
-        this.requestNumber = requestNumber;
         this.candidateId = candidateId;
         this.term = term;
         this.lastLogIndex = lastLogIndex;

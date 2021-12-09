@@ -16,12 +16,11 @@ public class Logger {
 
     /**
      * Checks whether or not the log has an entry (on given term) with the given log index
-     * @param term The term
      * @param position The log index
      * @return Whether or not the log has an entry (on given term) with the given log index
      */
     public Integer termAtPosition(Integer position) {
-        if(entries.isEmpty() || !entries.containsKey(position)) {
+        if(position == null || entries.isEmpty() || !entries.containsKey(position)) {
             return null;
         }
         return entries.get(position).getTerm();
@@ -52,12 +51,13 @@ public class Logger {
      */
     public void appendNewEntries(SortedMap<Integer, LogEntry> newEntries) {
         newEntries.forEach((key, log) -> entries.putIfAbsent(key, log));
+        printLog();
     }
 
     public void printLog() {
         System.out.println("------------------");
         for(Map.Entry<Integer, LogEntry> entry : entries.entrySet()) {
-            System.out.println(entry.getKey() + ": term " + entry.getValue().getTerm() + ", value" + entry.getValue().getValue());
+            System.out.println(entry.getKey() + ": term " + entry.getValue().getTerm() + ", value " + entry.getValue().getValue());
         }
         System.out.println("------------------");
     }
@@ -72,5 +72,36 @@ public class Logger {
 
     public LogEntry getEntry(Integer index) throws NoSuchElementException {
         return entries.get(index);
+    }
+
+    public Integer getIndexBefore(Integer index) {
+        if(index == null) {
+            return null;
+        }
+        try {
+            return entries.headMap(index).lastKey();
+        } catch (NoSuchElementException e) {
+            return null;
+        }
+    }
+
+    public SortedMap<Integer, LogEntry> getEntriesSince(Integer next) {
+        if(next == null) {
+            return null;
+        }
+        return entries.tailMap(next);
+    }
+
+    public void addEntry(int term, String variable, Integer value) {
+        Integer nextKey;
+        try {
+            nextKey = entries.lastKey() + 1;
+        } catch (NoSuchElementException e) {
+            nextKey = 0;
+        }
+
+        entries.put(nextKey, new LogEntry(term, variable, value));
+
+        printLog();
     }
 }

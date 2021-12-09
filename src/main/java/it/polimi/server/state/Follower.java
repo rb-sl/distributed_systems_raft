@@ -54,13 +54,17 @@ public class Follower extends State {
         // leader or granting vote to candidate: convert to candidate
         int timeout = ThreadLocalRandom.current().nextInt(MIN_ELECTION_TIMEOUT, ELECTION_TIMEOUT + 1);
         electionTimer = new Timer();
-        electionTimer.schedule(new TimerTask() {
-            @Override
-            public void run() {
-                stopTimers();
-                server.enqueue(new StateTransition(Role.Candidate));
-            }
-        }, timeout);
+        try {
+            electionTimer.schedule(new TimerTask() {
+                @Override
+                public void run() {
+                    stopTimers();
+                    server.enqueue(new StateTransition(Role.Candidate));
+                }
+            }, timeout);
+        } catch(IllegalStateException e) {
+            System.out.println("(Follower timer canceled)");
+        }
     }
 
     /**
