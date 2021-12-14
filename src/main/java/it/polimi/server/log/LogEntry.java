@@ -4,18 +4,22 @@ import lombok.Getter;
 
 import java.io.Serializable;
 
+@Getter
 public class LogEntry implements Serializable {
-    @Getter
-    public final int term;
-    @Getter
-    public final String varName;
-    @Getter
-    public final Integer value;
+    private final int term;
+    private final String varName;
+    private final Integer value;
 
-    public LogEntry(int term, String varName, Integer value) {
+    /**
+     * Added to be able to answer to the right client when complete
+     */
+    private final Integer clientRequestNumber;
+
+    public LogEntry(int term, String varName, Integer value, Integer clientRequestNumber) {
         this.term = term;
         this.varName = varName;
         this.value = value;
+        this.clientRequestNumber = clientRequestNumber;
     }
 
     @Override

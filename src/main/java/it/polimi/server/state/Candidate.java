@@ -23,11 +23,11 @@ public class Candidate extends State {
     private static int nVotes;
 
     public Candidate(State state) {
-        this(state.server, state.currentTerm, state.votedFor, state.logger, state.commitIndex, state.lastApplied, state.variables);
+        this(state.server, state.currentTerm, state.votedFor, state.logger, state.commitIndex, state.lastApplied);
     }
 
-    public Candidate(Server server, Integer currentTerm, String votedFor, Logger logger, Integer commitIndex, Integer lastApplied, Map<String, Integer> variables) {
-        super(server, currentTerm, votedFor, logger, commitIndex, lastApplied, variables);
+    public Candidate(Server server, Integer currentTerm, String votedFor, Logger logger, Integer commitIndex, Integer lastApplied) {
+        super(server, currentTerm, votedFor, logger, commitIndex, lastApplied);
 
         super.role = Role.Candidate;
 

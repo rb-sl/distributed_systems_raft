@@ -77,6 +77,9 @@ public class Server implements RemoteServerInterface {
      */
     private static final Object reqNumBlock = new Object();
 
+    private final Map<Integer, Integer> clientResponse = new HashMap<>();
+    private final Object clientResponseSync = new Object();
+
     private ElectionManager electionManager;
 
     private keepAliveManager keepAliveManager;
@@ -211,12 +214,16 @@ public class Server implements RemoteServerInterface {
                                 startElection.getTerm(), startElection.getLastLogIndex(), startElection.getLastLogTerm());
                         electionManager.startElection();
                     }
+                    case ReadRequest -> {
+                        ReadRequest readRequest = (ReadRequest) message;
+                        clientRequestComplete(message.getRequestNumber(), this.serverState.getVariable(readRequest.getVariable()));
+                    }
                     case WriteRequest -> {
                         WriteRequest writeRequest = (WriteRequest) message;
                         if(this.serverState.getRole() == State.Role.Leader) {
-                            // If command received from client: append entry to local log, respond after entry
-                            // applied to state machine (§5.3)
-                            serverState.getLogger().addEntry(serverState.getCurrentTerm(), writeRequest.getVariable(), writeRequest.getValue());
+                            // If command received from client: append entry to local log,
+                            // respond after entry applied to state machine (§5.3)
+                            serverState.getLogger().addEntry(serverState.getCurrentTerm(), writeRequest.getVariable(), writeRequest.getValue(), message.getRequestNumber());
                             serverState.logAdded();
                         }
                         else {
@@ -231,12 +238,14 @@ public class Server implements RemoteServerInterface {
                         || message.getMessageType() == Message.Type.RequestVote) {
                     message.getOrigin().reply(result);
                 }
-                // todo Replies to client requests
-
             } catch (InterruptedException e) {
                 System.err.println(Thread.currentThread().getId() + " - Thread interrupted, terminating");
-//                this.keepAliveManager.stopKeepAlive(); todo
-                this.electionManager.interruptElection();
+                if(this.keepAliveManager != null) {
+                    this.keepAliveManager.stopKeepAlive();
+                }
+                if(this.electionManager != null) {
+                    this.electionManager.interruptElection();
+                }
                 return;
             } catch (RemoteException e) {
                 e.printStackTrace();
@@ -373,13 +382,12 @@ public class Server implements RemoteServerInterface {
         }
 
         Integer commitIndex = this.serverState.getCommitIndex();
-
         // 5. If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry)
         if(message.getLeaderCommit() != null && (commitIndex == null || message.getLeaderCommit() > commitIndex)) {
             int newIndex;
             try {
                 newIndex = Math.min(message.getLeaderCommit(), message.getNewEntries().lastKey());
-            } catch(NoSuchElementException e) {
+            } catch(NoSuchElementException | NullPointerException e) {
                 newIndex = message.getLeaderCommit();
             }
             this.serverState.setCommitIndex(newIndex);
@@ -465,19 +473,51 @@ public class Server implements RemoteServerInterface {
         }
     }
 
-    @Override
-    public Integer read(String variable) throws RemoteException {
-        return 42;
+    private Integer waitResponse(Integer currentRequest) {
+        synchronized (clientResponseSync) {
+            while(!clientResponse.containsKey(currentRequest)) {
+                try {
+                    clientResponseSync.wait();
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+
+            return clientResponse.remove(currentRequest);
+        }
     }
 
     @Override
-    public void write(String variable, Integer value) throws RemoteException {
+    public Integer read(String variable) throws RemoteException {
+        Integer currentRequest;
+        synchronized (reqNumBlock) {
+            currentRequest = requestNumber;
+            requestNumber++;
+        }
+        enqueue(new ReadRequest(currentRequest, variable));
+
+        return waitResponse(currentRequest);
+    }
+
+    @Override
+    public Integer write(String variable, Integer value) throws RemoteException {
         Integer currentRequest;
         synchronized (reqNumBlock) {
             currentRequest = requestNumber;
             requestNumber++;
         }
         enqueue(new WriteRequest(currentRequest, variable, value));
+
+        // An answer is provided only after that the request has been applied to the
+        // state machine
+        return waitResponse(currentRequest);
+    }
+
+    public void clientRequestComplete(Integer requestNumber, Integer result) {
+        synchronized (clientResponseSync) {
+            clientResponse.put(requestNumber, result);
+            clientResponseSync.notifyAll();
+        }
     }
 
     /**

@@ -32,15 +32,15 @@ public class Follower extends State {
      * @param state The previous state
      */
     public Follower(State state) {
-        this(state.server, state.currentTerm, state.votedFor, state.logger, state.commitIndex, state.lastApplied, state.variables);
+        this(state.server, state.currentTerm, state.votedFor, state.logger, state.commitIndex, state.lastApplied);
     }
 
     /**
      * Parametric constructor for follower.
-     * @see State#State(Server, Integer, Integer, Logger, Integer, Integer, Map<String, Integer>)
+     * @see State#State(Server, Integer, Integer, Logger, Integer, Integer)
      */
-    public Follower(Server server, Integer currentTerm, String votedFor, Logger logger, Integer commitIndex, Integer lastApplied, Map<String, Integer> variables) {
-        super(server, currentTerm, votedFor, logger, commitIndex, lastApplied, variables);
+    public Follower(Server server, Integer currentTerm, String votedFor, Logger logger, Integer commitIndex, Integer lastApplied) {
+        super(server, currentTerm, votedFor, logger, commitIndex, lastApplied);
         this.role = Role.Follower;
         System.out.println(Thread.currentThread().getId() + " [!] Changed to FOLLOWER in Term " + currentTerm);
         startTimer();

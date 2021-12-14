@@ -56,5 +56,5 @@ public interface RemoteServerInterface extends Remote {
 
         // Methods called by clients
         Integer read(String variable) throws RemoteException;
-        void write(String variable, Integer value) throws RemoteException;
+        Integer write(String variable, Integer value) throws RemoteException;
 }

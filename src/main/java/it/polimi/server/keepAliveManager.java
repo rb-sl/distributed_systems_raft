@@ -2,6 +2,7 @@ package it.polimi.server;
 
 import it.polimi.networking.RemoteServerInterface;
 import it.polimi.networking.messages.Result;
+import it.polimi.server.state.State;
 
 import java.rmi.RemoteException;
 import java.util.HashMap;
@@ -61,7 +62,7 @@ public class keepAliveManager {
         while(!Thread.currentThread().isInterrupted()) {
             try {
                 serverInterface.appendEntries(this.server, term, originId, null,
-                        null, null, null);
+                        null, null, this.server.getServerState().getCommitIndex());
             } catch (RemoteException e) {
                 // Host unreachable
                 System.err.println(Thread.currentThread().getId() + " [KeepAlive] " + serverId + " unreachable");
@@ -73,5 +74,12 @@ public class keepAliveManager {
                 return;
             }
         }
+    }
+
+    public void stopKeepAlive() {
+        for(Thread thread: threads.values()) {
+            thread.interrupt();
+        }
+        threads.clear();
     }
 }

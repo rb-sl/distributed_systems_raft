@@ -32,11 +32,11 @@ public class Leader extends State {
     private static final Map<Integer, Result> receiptResults = new HashMap<>();
 
     public Leader(State state) {
-        this(state.server, state.currentTerm, state.votedFor, state.logger, state.commitIndex, state.lastApplied, state.variables);
+        this(state.server, state.currentTerm, state.votedFor, state.logger, state.commitIndex, state.lastApplied);
     }
 
-    public Leader(Server server, Integer currentTerm, String votedFor, Logger logger, Integer commitIndex, Integer lastApplied, Map<String, Integer> variables) {
-        super(server, currentTerm, votedFor, logger, commitIndex, lastApplied, variables);
+    public Leader(Server server, Integer currentTerm, String votedFor, Logger logger, Integer commitIndex, Integer lastApplied) {
+        super(server, currentTerm, votedFor, logger, commitIndex, lastApplied);
         this.role = Role.Leader;
 
         matchIndex = new HashMap<>();
@@ -99,10 +99,14 @@ public class Leader extends State {
             if (lastLogIndex != null && lastLogIndex >= next) {
                 // send AppendEntries RPC with log entries starting at nextIndex
                 Integer prevLogIndex = logger.getIndexBefore(next);
+                Integer commit;
+                synchronized (commitIndexSync) {
+                    commit = this.commitIndex;
+                }
                 int receipt;
                 try {
                     receipt = serverInterface.appendEntries(this.server, currentTerm, this.server.getId(),
-                            prevLogIndex, logger.termAtPosition(prevLogIndex), logger.getEntriesSince(next), commitIndex);
+                            prevLogIndex, logger.termAtPosition(prevLogIndex), logger.getEntriesSince(next), commit);
                     pendingRequests.add(receipt);
                     this.server.addRequest(receipt, Message.Type.AppendEntry);
                 } catch (RemoteException e) {
@@ -137,7 +141,7 @@ public class Leader extends State {
                 else {
                     // If AppendEntries fails because of log inconsistency:
                     // decrement nextIndex and retry (§5.3)
-                    nextIndex.put(serverId, nextIndex.get(serverId) - 1); //todo needs testing
+                    nextIndex.put(serverId, nextIndex.get(serverId) - 1);
                     System.err.println("Replication " + serverId + " no");
                 }
             }
@@ -174,11 +178,6 @@ public class Leader extends State {
                 }
             }
 
-//        Optional<Integer> nextCommit = matchIndex.values().stream().map(i)
-//                ..filter(i -> i >= commitIndex).min(Integer::compare);
-
-//            System.out.println(Thread.currentThread().getId() + " Candidate index: " + minIndexGTCommit + ", Count: " + minCount + ", lastLogTerm: " + logger.getEntry(minIndexGTCommit).getTerm() + ", MatchIndex: " + matchIndex);
-
             // If there exists an N such that N > commitIndex,
             if (minIndexGTCommit != null
                     // a majority of matchIndex[i] ≥ N,
@@ -187,7 +186,7 @@ public class Leader extends State {
                     && (logger.getEntry(minIndexGTCommit) != null && logger.getEntry(minIndexGTCommit).getTerm() == currentTerm)) {
                 // set commitIndex = N (§5.3, §5.4).
                 this.server.enqueue(new UpdateIndex(minIndexGTCommit));
-                System.err.println(Thread.currentThread().getId() + " INDEX UPDATED");
+                System.err.println(Thread.currentThread().getId() + " INDEX UPDATED: " + minIndexGTCommit);
             }
         }
     }

@@ -14,17 +14,17 @@ class ServerTest {
         Server s = new Server();
 
         SortedMap<Integer, LogEntry> ent = new TreeMap<>();
-        ent.put(0, new LogEntry(0, "x", 1));
-        ent.put(1, new LogEntry(0, "x", 2));
-        ent.put(2, new LogEntry(0, "x", 3));
-        ent.put(3, new LogEntry(0, "x", 4));
+        ent.put(0, new LogEntry(0, "x", 1, 0));
+        ent.put(1, new LogEntry(0, "x", 2, 0));
+        ent.put(2, new LogEntry(0, "x", 3, 0));
+        ent.put(3, new LogEntry(0, "x", 4, 0));
 
         s.appendEntries(new AppendEntries(0, null, 0, "1", null, null, ent, null));
 
         s.getServerState().getLogger().printLog();
 
         SortedMap<Integer, LogEntry> ent2 = new TreeMap<>();
-        ent2.put(2, new LogEntry(1, "x", 4));
+        ent2.put(2, new LogEntry(1, "x", 4, 0));
 
         s.appendEntries(new AppendEntries(1, null, 0, "1", 1, 0, ent2, null));
 

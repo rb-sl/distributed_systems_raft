@@ -9,7 +9,6 @@ public class Logger {
      */
     private SortedMap<Integer, LogEntry> entries;
 
-
     public Logger() {
         this.entries = new TreeMap<>();
     }
@@ -55,11 +54,11 @@ public class Logger {
     }
 
     public void printLog() {
-        System.out.println("------------------");
+        System.out.println("---Log---------------");
         for(Map.Entry<Integer, LogEntry> entry : entries.entrySet()) {
-            System.out.println(entry.getKey() + ": term " + entry.getValue().getTerm() + ", value " + entry.getValue().getValue());
+            System.out.println("" + entry.getKey() + ": [Term " + entry.getValue().getTerm() + "] " + entry.getValue().getVarName() + " ← " + entry.getValue().getValue());
         }
-        System.out.println("------------------");
+        System.out.println("---------------------");
     }
 
     /**
@@ -92,7 +91,7 @@ public class Logger {
         return entries.tailMap(next);
     }
 
-    public void addEntry(int term, String variable, Integer value) {
+    public void addEntry(int term, String variable, Integer value, Integer requestNumber) {
         Integer nextKey;
         try {
             nextKey = entries.lastKey() + 1;
@@ -100,7 +99,7 @@ public class Logger {
             nextKey = 0;
         }
 
-        entries.put(nextKey, new LogEntry(term, variable, value));
+        entries.put(nextKey, new LogEntry(term, variable, value, requestNumber));
 
         printLog();
     }

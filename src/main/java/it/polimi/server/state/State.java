@@ -64,8 +64,7 @@ public abstract class State {
     /**
      * Index of highest log entry known to be committed (initialized to 0, increases monotonically)
      */
-    @Getter
-    protected Integer commitIndex;
+    protected static Integer commitIndex;
 
     protected static final Object commitIndexSync = new Object();
 
@@ -83,7 +82,7 @@ public abstract class State {
     /**
      * Persistent storage for variables
      */
-    protected final Path storage = Paths.get("./storage.json");
+    protected final Path storage;
 
     /**
      * Gson object
@@ -106,7 +105,7 @@ public abstract class State {
      * @param server The server
      */
     public State(Server server, Map<String, Integer> variables) {
-        this(server, null, null, new Logger(), null, null, variables);
+        this(server, null, null, new Logger(), null, null);
 
         System.out.println("Restored variables: " + this.variables);
     }
@@ -119,17 +118,18 @@ public abstract class State {
      * @param logger The logger
      * @param commitIndex Index of highest log entry known to be committed
      * @param lastApplied Index of highest log entry applied to state machine
-     * @param variables Map of variables
      */
-    public State(Server server, Integer currentTerm, String votedFor, Logger logger, Integer commitIndex, Integer lastApplied,
-                 Map<String, Integer> variables) {
+    public State(Server server, Integer currentTerm, String votedFor, Logger logger, Integer commitIndex, Integer lastApplied) {
         this.server = server;
         this.currentTerm = currentTerm;
         this.votedFor = votedFor;
         this.logger = logger;
         this.commitIndex = commitIndex;
         this.lastApplied = lastApplied;
-        this.variables = variables;
+
+        this.storage = Paths.get("./configuration/" + server.getId() + "_storage.json");
+
+        restoreVars();
         elapsedMinTimeout = false;
     }
 
@@ -138,7 +138,21 @@ public abstract class State {
      */
     private void restoreVars() {
         try {
-            Type type = new TypeToken<Map<String, Integer>>(){}.getType();
+            if(!Files.exists(storage)) {
+                Files.createFile(storage);
+                // Initializes the file as an empty json
+                try {
+                    Files.writeString(storage, "{}");
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+        } catch (IOException ioException) {
+            ioException.printStackTrace();
+        }
+
+        try {
+            Type type = new TypeToken<Map<String, Integer>>() {}.getType();
             this.variables = gson.fromJson(Files.readString(storage), type);
         } catch(NullPointerException | JsonIOException | IOException e) {
             e.printStackTrace();
@@ -146,11 +160,12 @@ public abstract class State {
             // With a corrupted file variables are reinitialized
             this.variables = new HashMap<>();
         }
+
         System.out.println(this.variables);
     }
 
     /**
-     *Write the last commit on file
+     * Write the last commit on file
      * @param toWrite What to write
      * @throws IOException When there's an error in input output functions
      */
@@ -177,6 +192,12 @@ public abstract class State {
         }
     }
 
+    public Integer getCommitIndex() {
+        synchronized (commitIndexSync) {
+            return commitIndex;
+        }
+    }
+
     /**
      * Setter for commitIndex, with a check on unapplied logs
      * @param commitIndex The commit index
@@ -194,7 +215,11 @@ public abstract class State {
             if (this.commitIndex > last) {
                 for (int i = last + 1; i <= this.commitIndex; i++) {
                     try {
-                        applyToStateMachine(this.logger.getEntry(i));
+                        LogEntry entry = this.logger.getEntry(i);
+                        applyToStateMachine(entry);
+
+                        // Returns response to client
+                        this.server.clientRequestComplete(entry.getClientRequestNumber(), 1);
                     } catch (NoSuchElementException e) {
                         // Should not happen as committed entries should be known to the server
                         e.printStackTrace();
@@ -244,6 +269,10 @@ public abstract class State {
     public void receivedAppend(int term) {
         receivedMsg(term);
         startMinElectionTimer();
+    }
+
+    public Integer getVariable(String varName) {
+        return variables.get(varName);
     }
 
     /**
