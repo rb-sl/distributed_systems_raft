@@ -223,6 +223,7 @@ public class Server implements RemoteServerInterface {
                             leader.write(writeRequest.getVariable(), writeRequest.getValue());
                         }
                     }
+                    case UpdateIndex -> this.serverState.setCommitIndex(((UpdateIndex) message).getCommitIndex());
                 }
 
                 // Replies to other servers
@@ -371,15 +372,17 @@ public class Server implements RemoteServerInterface {
             this.serverState.getLogger().appendNewEntries(message.getNewEntries());
         }
 
+        Integer commitIndex = this.serverState.getCommitIndex();
+
         // 5. If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry)
-        if(message.getLeaderCommit() != null && message.getLeaderCommit() > this.serverState.getCommitIndex()) {
-            int commitIndex;
+        if(message.getLeaderCommit() != null && (commitIndex == null || message.getLeaderCommit() > commitIndex)) {
+            int newIndex;
             try {
-                commitIndex = Math.min(message.getLeaderCommit(), message.getNewEntries().lastKey());
+                newIndex = Math.min(message.getLeaderCommit(), message.getNewEntries().lastKey());
             } catch(NoSuchElementException e) {
-                commitIndex = message.getLeaderCommit();
+                newIndex = message.getLeaderCommit();
             }
-            this.serverState.setCommitIndex(commitIndex);
+            this.serverState.setCommitIndex(newIndex);
         }
 
         return new Result(message.getRequestNumber(), currentTerm, true);

@@ -67,6 +67,8 @@ public abstract class State {
     @Getter
     protected Integer commitIndex;
 
+    protected static final Object commitIndexSync = new Object();
+
     /**
      * Index of highest log entry applied to state machine (initialized to 0, increases monotonically)
      */
@@ -180,16 +182,23 @@ public abstract class State {
      * @param commitIndex The commit index
      */
     public void setCommitIndex(int commitIndex) {
-        this.commitIndex = commitIndex;
+        synchronized (commitIndexSync) {
+            this.commitIndex = commitIndex;
 
-        // If commitIndex > lastApplied: increment lastApplied, apply log[lastApplied] to state machine (§5.3)
-        if(this.commitIndex > this.lastApplied) {
-            for(int i = lastApplied + 1; i <= this.commitIndex; i++) {
-                try {
-                    applyToStateMachine(this.logger.getEntry(i));
-                } catch(NoSuchElementException e) {
-                    // Should not happen as committed entries should be known to the server
-                    e.printStackTrace();
+            Integer last = this.lastApplied;
+            if (last == null) {
+                last = -1; // Will become 0 for first commit index
+            }
+
+            // If commitIndex > lastApplied: increment lastApplied, apply log[lastApplied] to state machine (§5.3)
+            if (this.commitIndex > last) {
+                for (int i = last + 1; i <= this.commitIndex; i++) {
+                    try {
+                        applyToStateMachine(this.logger.getEntry(i));
+                    } catch (NoSuchElementException e) {
+                        // Should not happen as committed entries should be known to the server
+                        e.printStackTrace();
+                    }
                 }
             }
         }

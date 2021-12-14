@@ -71,7 +71,7 @@ public class Logger {
     }
 
     public LogEntry getEntry(Integer index) throws NoSuchElementException {
-        return entries.get(index);
+        return index == null ? null : entries.get(index);
     }
 
     public Integer getIndexBefore(Integer index) {

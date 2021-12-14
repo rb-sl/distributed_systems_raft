@@ -3,14 +3,14 @@ package it.polimi.server.state;
 import it.polimi.networking.RemoteServerInterface;
 import it.polimi.networking.messages.Message;
 import it.polimi.networking.messages.Result;
+import it.polimi.networking.messages.UpdateIndex;
 import it.polimi.server.Server;
 import it.polimi.server.log.Logger;
 
 import java.rmi.RemoteException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 public class Leader extends State {
     // Volatile state on leaders (Reinitialized after election):
@@ -110,42 +110,84 @@ public class Leader extends State {
                     continue;
                 }
 
-                while (!receiptResults.containsKey(receipt)) {
-                    try {
-                        synchronized (receiptResults) {
+                Result result;
+                synchronized (receiptResults) {
+                    while (!receiptResults.containsKey(receipt)) {
+                        try {
                             receiptResults.wait();
+                        } catch (InterruptedException e) {
+                            System.err.println("Replication thread " + Thread.currentThread().getId() + " interrupted");
+                            return;
                         }
-                    } catch (InterruptedException e) {
-                        System.err.println("Replication thread " + Thread.currentThread().getId() + " interrupted");
-                        return;
                     }
+                    result = receiptResults.remove(receipt);
                 }
 
-                Result result = receiptResults.remove(receipt);
                 if(result.isSuccess()) {
                     // If successful: update nextIndex and matchIndex for follower (§5.3)
                     synchronized (nextIndex) {
                         nextIndex.put(serverId, lastLogIndex + 1);
                     }
-                    matchIndex.put(serverId, lastLogIndex);
+                    synchronized (commitIndexSync) {
+                        matchIndex.put(serverId, lastLogIndex);
+                    }
                     System.out.println(Thread.currentThread().getId() + "Replication " + serverId + " ok, new next: " + nextIndex.get(serverId));
+                    checkCommitIndex();
                 }
                 else {
                     // If AppendEntries fails because of log inconsistency:
                     // decrement nextIndex and retry (§5.3)
-                    nextIndex.put(serverId, nextIndex.get(serverId) - 1);
+                    nextIndex.put(serverId, nextIndex.get(serverId) - 1); //todo needs testing
                     System.err.println("Replication " + serverId + " no");
                 }
             }
             else {
                 try {
                     synchronized (nextIndex) {
+                        // When no new client requests need to be replicated the thread waits
                         System.err.println("No new requests");
                         nextIndex.wait();
                     }
                 } catch (InterruptedException e) {
                     return;
                 }
+            }
+        }
+    }
+
+    /**
+     * If commitIndex update rules are met a message is enqueued on the leader to update the index
+     */
+    public void checkCommitIndex() {
+        Integer minIndexGTCommit = null;
+        int minCount = 0;
+
+        synchronized (commitIndexSync) {
+            for (Integer i : matchIndex.values()) {
+                if (commitIndex == null || i > commitIndex) {
+                    if (minIndexGTCommit == null || i < minIndexGTCommit) {
+                        minIndexGTCommit = i;
+                        minCount = 1;
+                    } else if (i.equals(minIndexGTCommit)) {
+                        minCount++;
+                    }
+                }
+            }
+
+//        Optional<Integer> nextCommit = matchIndex.values().stream().map(i)
+//                ..filter(i -> i >= commitIndex).min(Integer::compare);
+
+//            System.out.println(Thread.currentThread().getId() + " Candidate index: " + minIndexGTCommit + ", Count: " + minCount + ", lastLogTerm: " + logger.getEntry(minIndexGTCommit).getTerm() + ", MatchIndex: " + matchIndex);
+
+            // If there exists an N such that N > commitIndex,
+            if (minIndexGTCommit != null
+                    // a majority of matchIndex[i] ≥ N,
+                    && minCount > matchIndex.values().size() / 2
+                    // and log[N].term == currentTerm:
+                    && (logger.getEntry(minIndexGTCommit) != null && logger.getEntry(minIndexGTCommit).getTerm() == currentTerm)) {
+                // set commitIndex = N (§5.3, §5.4).
+                this.server.enqueue(new UpdateIndex(minIndexGTCommit));
+                System.err.println(Thread.currentThread().getId() + " INDEX UPDATED");
             }
         }
     }
@@ -158,6 +200,7 @@ public class Leader extends State {
 
         Integer requestNumber = result.getRequestNumber();
         if (type == Message.Type.AppendEntry && pendingRequests.contains(requestNumber)) {
+            // Wakes up threads waiting for follower's answers
             synchronized (pendingRequests) {
                 pendingRequests.remove(requestNumber);
             }
