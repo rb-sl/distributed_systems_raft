@@ -30,9 +30,10 @@ public class Leader extends State {
     private final static List<Integer> pendingRequests = new ArrayList<>();
 
     private static final Map<Integer, Result> receiptResults = new HashMap<>();
+    private static final Object receiptSync = new Object();
 
     public Leader(State state) {
-        this(state.server, state.currentTerm, state.votedFor, state.logger, state.commitIndex, state.lastApplied);
+        this(state.server, state.currentTerm, state.votedFor, state.logger, commitIndex, state.lastApplied);
     }
 
     public Leader(Server server, Integer currentTerm, String votedFor, Logger logger, Integer commitIndex, Integer lastApplied) {
@@ -42,9 +43,15 @@ public class Leader extends State {
         matchIndex = new HashMap<>();
         replicationThreads = new HashMap<>();
 
-        Integer nextLogIndex = getLastLogIndex();
-        if(nextLogIndex != null)
-            nextLogIndex++;
+        Integer lastIndex = getLastLogIndex();
+
+        Integer nextLogIndex = null;
+        if(lastIndex != null) {
+            nextLogIndex = lastIndex + 1;
+        }
+
+//        nextIndex.put(server.getId(), nextLogIndex);
+//        matchIndex.put(server.getId(), lastIndex);
 
         for(String id: server.getServersInCluster()) {
             // initialized to leader last log index + 1
@@ -66,7 +73,7 @@ public class Leader extends State {
 
     public void startReplication(Map<String, RemoteServerInterface> cluster) {
         for(Map.Entry<String, RemoteServerInterface> entry: cluster.entrySet()) {
-            startReplication(entry.getKey(), entry.getValue());
+                startReplication(entry.getKey(), entry.getValue());
         }
     }
 
@@ -101,13 +108,16 @@ public class Leader extends State {
                 Integer prevLogIndex = logger.getIndexBefore(next);
                 Integer commit;
                 synchronized (commitIndexSync) {
-                    commit = this.commitIndex;
+                    commit = commitIndex;
                 }
                 int receipt;
                 try {
-                    receipt = serverInterface.appendEntries(this.server, currentTerm, this.server.getId(),
-                            prevLogIndex, logger.termAtPosition(prevLogIndex), logger.getEntriesSince(next), commit);
-                    pendingRequests.add(receipt);
+                    synchronized (pendingRequests) {
+                        receipt = serverInterface.appendEntries(this.server, currentTerm, this.server.getId(),
+                                prevLogIndex, logger.termAtPosition(prevLogIndex), logger.getEntriesSince(next), commit);
+
+                        pendingRequests.add(receipt);
+                    }
                     this.server.addRequest(receipt, Message.Type.AppendEntry);
                 } catch (RemoteException e) {
                     // Retries indefinitely
@@ -115,10 +125,10 @@ public class Leader extends State {
                 }
 
                 Result result;
-                synchronized (receiptResults) {
+                synchronized (receiptSync) {
                     while (!receiptResults.containsKey(receipt)) {
                         try {
-                            receiptResults.wait();
+                            receiptSync.wait();
                         } catch (InterruptedException e) {
                             System.err.println("Replication thread " + Thread.currentThread().getId() + " interrupted");
                             return;
@@ -198,19 +208,23 @@ public class Leader extends State {
         super.processResult(type, result);
 
         Integer requestNumber = result.getRequestNumber();
-        if (type == Message.Type.AppendEntry && pendingRequests.contains(requestNumber)) {
-            // Wakes up threads waiting for follower's answers
-            synchronized (pendingRequests) {
+        synchronized (pendingRequests) {
+            if (type == Message.Type.AppendEntry && pendingRequests.contains(requestNumber)) {
+                // Wakes up threads waiting for follower's answers
                 pendingRequests.remove(requestNumber);
-            }
-            synchronized (receiptResults) {
-                receiptResults.put(requestNumber, result);
-                receiptResults.notifyAll();
+
+                synchronized (receiptSync) {
+                    receiptResults.put(requestNumber, result);
+                    receiptSync.notifyAll();
+                }
             }
         }
     }
 
     public void logAdded() {
+//        synchronized (commitIndexSync) {
+//            matchIndex.put(server.getId(), getLastLogIndex());
+//        }
         synchronized (nextIndex) {
             nextIndex.notifyAll();
         }

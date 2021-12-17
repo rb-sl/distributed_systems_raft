@@ -99,7 +99,7 @@ public class Logger {
             nextKey = 0;
         }
 
-        entries.put(nextKey, new LogEntry(term, variable, value, requestNumber));
+        entries.put(nextKey, new LogEntry(term, variable, value, requestNumber, nextKey));
 
         printLog();
     }

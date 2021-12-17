@@ -37,7 +37,7 @@ public class Follower extends State {
 
     /**
      * Parametric constructor for follower.
-     * @see State#State(Server, Integer, Integer, Logger, Integer, Integer)
+     * @see State#State(Server, Integer, String, Logger, Integer, Integer)
      */
     public Follower(Server server, Integer currentTerm, String votedFor, Logger logger, Integer commitIndex, Integer lastApplied) {
         super(server, currentTerm, votedFor, logger, commitIndex, lastApplied);

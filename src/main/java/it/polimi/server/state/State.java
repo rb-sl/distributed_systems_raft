@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.JsonIOException;
 import com.google.gson.JsonSyntaxException;
 import com.google.gson.reflect.TypeToken;
+import it.polimi.networking.ClientResult;
 import it.polimi.networking.RemoteServerInterface;
 import it.polimi.networking.messages.Message;
 import it.polimi.networking.messages.Result;
@@ -204,7 +205,7 @@ public abstract class State {
      */
     public void setCommitIndex(int commitIndex) {
         synchronized (commitIndexSync) {
-            this.commitIndex = commitIndex;
+            commitIndex = commitIndex;
 
             Integer last = this.lastApplied;
             if (last == null) {
@@ -212,8 +213,8 @@ public abstract class State {
             }
 
             // If commitIndex > lastApplied: increment lastApplied, apply log[lastApplied] to state machine (§5.3)
-            if (this.commitIndex > last) {
-                for (int i = last + 1; i <= this.commitIndex; i++) {
+            if (commitIndex > last) {
+                for (int i = last + 1; i <= commitIndex; i++) {
                     try {
                         LogEntry entry = this.logger.getEntry(i);
                         applyToStateMachine(entry);
@@ -234,6 +235,9 @@ public abstract class State {
      * @param entry The entry
      */
     private void applyToStateMachine(LogEntry entry) {
+        if(entry == null) {
+            return;
+        }
         String key = entry.getVarName();
         Integer val = entry.getValue();
 

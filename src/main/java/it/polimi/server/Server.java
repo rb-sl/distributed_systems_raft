@@ -2,6 +2,8 @@ package it.polimi.server;
 
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
+import it.polimi.exceptions.NotLeaderException;
+import it.polimi.networking.ClientResult;
 import it.polimi.networking.RemoteServerInterface;
 import it.polimi.networking.messages.*;
 import it.polimi.server.leaderElection.ElectionManager;
@@ -56,10 +58,10 @@ public class Server implements RemoteServerInterface {
     @Getter
     private final Map<String, RemoteServerInterface> cluster;
 
-    private static BlockingQueue<Message> messageQueue;
+    private static final BlockingQueue<Message> messageQueue = new LinkedBlockingQueue<>();
 
     private static Map<Integer, Message.Type> outgoingRequests;
-
+    private static final Object outgoingSync = new Object();
     /**
      * Server id
      */
@@ -77,8 +79,8 @@ public class Server implements RemoteServerInterface {
      */
     private static final Object reqNumBlock = new Object();
 
-    private final Map<Integer, Integer> clientResponse = new HashMap<>();
-    private final Object clientResponseSync = new Object();
+    private static final Map<Integer, ClientResult> clientResponse = new HashMap<>();
+    private static final Object clientResponseSync = new Object();
 
     private ElectionManager electionManager;
 
@@ -99,7 +101,6 @@ public class Server implements RemoteServerInterface {
      */
     public Server(String serverName) {
         this.cluster = new HashMap<>();
-        messageQueue = new LinkedBlockingQueue<>();
         outgoingRequests = new HashMap<>();
 
         this.id = serverName;
@@ -183,13 +184,15 @@ public class Server implements RemoteServerInterface {
                     case RequestVote -> result = requestVote((RequestVote) message);
                     case Result -> {
                         result = (Result) message;
-                        if(outgoingRequests.containsKey(result.getRequestNumber())) {
-                            Message.Type type = outgoingRequests.remove(result.getRequestNumber());
-                            this.serverState.processResult(type, result);
-                        }
-                        else {
-                            // If the request was not added yet it is re-enqueued
-                            messageQueue.put(result);
+                        synchronized (outgoingSync) {
+                            if (outgoingRequests.containsKey(result.getRequestNumber())) {
+                                Message.Type type = outgoingRequests.remove(result.getRequestNumber());
+                                this.serverState.processResult(type, result);
+                            } else {
+                                // If the request was not added yet it is re-enqueued
+//                                enqueue(result);
+//                                System.err.println("REENQUEUED");
+                            }
                         }
                     }
                     case StateTransition -> {
@@ -216,7 +219,12 @@ public class Server implements RemoteServerInterface {
                     }
                     case ReadRequest -> {
                         ReadRequest readRequest = (ReadRequest) message;
-                        clientRequestComplete(message.getRequestNumber(), this.serverState.getVariable(readRequest.getVariable()));
+                        if(this.serverState.getRole() == State.Role.Leader) {
+                            clientRequestComplete(message.getRequestNumber(), this.serverState.getVariable(readRequest.getVariable()));
+                        }
+                        else {
+                            clientRequestError(readRequest.getRequestNumber(), ClientResult.Status.NOTLEADER);
+                        }
                     }
                     case WriteRequest -> {
                         WriteRequest writeRequest = (WriteRequest) message;
@@ -227,7 +235,7 @@ public class Server implements RemoteServerInterface {
                             serverState.logAdded();
                         }
                         else {
-                            leader.write(writeRequest.getVariable(), writeRequest.getValue());
+                            clientRequestError(writeRequest.getRequestNumber(), ClientResult.Status.NOTLEADER);
                         }
                     }
                     case UpdateIndex -> this.serverState.setCommitIndex(((UpdateIndex) message).getCommitIndex());
@@ -318,16 +326,20 @@ public class Server implements RemoteServerInterface {
      * Puts a message in the message queue
      * @param message The message
      */
-    public synchronized void enqueue(Message message) {
-        try {
-            messageQueue.put(message);
-        } catch (InterruptedException e) {
-            e.printStackTrace();
+    public void enqueue(Message message) {
+        synchronized (messageQueue) {
+            try {
+                messageQueue.put(message);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
         }
     }
 
-    public synchronized void addRequest(Integer receipt, Message.Type messageType) {
-        outgoingRequests.put(receipt, messageType);
+    public void addRequest(Integer receipt, Message.Type messageType) {
+        synchronized (outgoingSync) {
+            outgoingRequests.put(receipt, messageType);
+        }
     }
 
     /**
@@ -473,7 +485,7 @@ public class Server implements RemoteServerInterface {
         }
     }
 
-    private Integer waitResponse(Integer currentRequest) {
+    private Integer waitResponse(Integer currentRequest) throws NotLeaderException {
         synchronized (clientResponseSync) {
             while(!clientResponse.containsKey(currentRequest)) {
                 try {
@@ -483,12 +495,16 @@ public class Server implements RemoteServerInterface {
                 }
             }
 
-            return clientResponse.remove(currentRequest);
+            ClientResult response = clientResponse.remove(currentRequest);
+            if(response.getStatus() == ClientResult.Status.NOTLEADER) {
+                throw new NotLeaderException(this.id + " is not a leader", leader);
+            }
+            return response.getResult();
         }
     }
 
     @Override
-    public Integer read(String variable) throws RemoteException {
+    public Integer read(String variable) throws RemoteException, NotLeaderException {
         Integer currentRequest;
         synchronized (reqNumBlock) {
             currentRequest = requestNumber;
@@ -500,7 +516,7 @@ public class Server implements RemoteServerInterface {
     }
 
     @Override
-    public Integer write(String variable, Integer value) throws RemoteException {
+    public Integer write(String variable, Integer value) throws RemoteException, NotLeaderException {
         Integer currentRequest;
         synchronized (reqNumBlock) {
             currentRequest = requestNumber;
@@ -514,8 +530,16 @@ public class Server implements RemoteServerInterface {
     }
 
     public void clientRequestComplete(Integer requestNumber, Integer result) {
+        addClientResponse(requestNumber, result, ClientResult.Status.OK);
+    }
+
+    public void clientRequestError(Integer requestNumber, ClientResult.Status status) {
+        addClientResponse(requestNumber, null, status);
+    }
+
+    private void addClientResponse(Integer requestNumber, Integer result, ClientResult.Status status) {
         synchronized (clientResponseSync) {
-            clientResponse.put(requestNumber, result);
+            clientResponse.put(requestNumber, new ClientResult(result, status));
             clientResponseSync.notifyAll();
         }
     }

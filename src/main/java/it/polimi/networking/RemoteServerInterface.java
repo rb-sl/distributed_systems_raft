@@ -1,5 +1,6 @@
 package it.polimi.networking;
 
+import it.polimi.exceptions.NotLeaderException;
 import it.polimi.networking.messages.Result;
 import it.polimi.server.log.LogEntry;
 
@@ -55,6 +56,6 @@ public interface RemoteServerInterface extends Remote {
         void updateCluster(String serverName, RemoteServerInterface serverInterface) throws RemoteException;
 
         // Methods called by clients
-        Integer read(String variable) throws RemoteException;
-        Integer write(String variable, Integer value) throws RemoteException;
+        Integer read(String variable) throws RemoteException, NotLeaderException;
+        Integer write(String variable, Integer value) throws RemoteException, NotLeaderException;
 }
