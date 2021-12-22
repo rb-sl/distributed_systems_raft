@@ -9,8 +9,6 @@ import it.polimi.server.log.Logger;
 
 import java.rmi.RemoteException;
 import java.util.*;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 
 public class Leader extends State {
     // Volatile state on leaders (Reinitialized after election):
@@ -207,7 +205,7 @@ public class Leader extends State {
     public void processResult(Message.Type type, Result result) {
         super.processResult(type, result);
 
-        Integer requestNumber = result.getRequestNumber();
+        Integer requestNumber = result.getInternalRequestNumber();
         synchronized (pendingRequests) {
             if (type == Message.Type.AppendEntry && pendingRequests.contains(requestNumber)) {
                 // Wakes up threads waiting for follower's answers

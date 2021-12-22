@@ -1,17 +1,18 @@
 package it.polimi.networking.messages;
 
-import it.polimi.networking.RemoteServerInterface;
 import lombok.Getter;
 
 @Getter
 public class WriteRequest extends Message {
+    Integer clientRequestNumber;
     String variable;
     Integer value;
 
-    public WriteRequest(Integer requestNumber, String variable, Integer value) {
+    public WriteRequest(Integer requestNumber, Integer clientRequestNumber, String variable, Integer value) {
         super.messageType = Type.WriteRequest;
-        super.requestNumber = requestNumber;
+        super.internalRequestNumber = requestNumber;
 
+        this.clientRequestNumber = clientRequestNumber;
         this.variable = variable;
         this.value = value;
     }

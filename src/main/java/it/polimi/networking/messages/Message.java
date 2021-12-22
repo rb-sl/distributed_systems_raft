@@ -13,14 +13,14 @@ public abstract class Message implements Serializable {
 
     protected Type messageType;
     protected RemoteServerInterface origin;
-    protected Integer requestNumber;
+    protected Integer internalRequestNumber;
 
     @Override
     public String toString() {
         return "Message{" +
                 "messageType=" + messageType +
                 ", origin=" + origin +
-                ", requestNumber=" + requestNumber +
+                ", requestNumber=" + internalRequestNumber +
                 '}';
     }
 }

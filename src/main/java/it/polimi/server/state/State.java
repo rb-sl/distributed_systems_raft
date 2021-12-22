@@ -4,7 +4,6 @@ import com.google.gson.Gson;
 import com.google.gson.JsonIOException;
 import com.google.gson.JsonSyntaxException;
 import com.google.gson.reflect.TypeToken;
-import it.polimi.networking.ClientResult;
 import it.polimi.networking.RemoteServerInterface;
 import it.polimi.networking.messages.Message;
 import it.polimi.networking.messages.Result;
@@ -220,7 +219,7 @@ public abstract class State {
                         applyToStateMachine(entry);
 
                         // Returns response to client
-                        this.server.clientRequestComplete(entry.getClientRequestNumber(), 1);
+                        this.server.getClientManager().clientRequestComplete(entry.getInternalRequestNumber(), entry.getClientRequestNumber(),  1);
                     } catch (NoSuchElementException e) {
                         // Should not happen as committed entries should be known to the server
                         e.printStackTrace();

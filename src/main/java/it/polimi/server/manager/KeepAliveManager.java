@@ -1,21 +1,22 @@
-package it.polimi.server;
+package it.polimi.server.manager;
 
 import it.polimi.networking.RemoteServerInterface;
 import it.polimi.networking.messages.Result;
+import it.polimi.server.Server;
 import it.polimi.server.state.State;
 
 import java.rmi.RemoteException;
 import java.util.HashMap;
 import java.util.Map;
 
-public class keepAliveManager {
+public class KeepAliveManager {
     private static final int KEEPALIVE_INTERVAL = 10;
 
     private final Server server;
     private final Map<String, RemoteServerInterface> cluster;
     private static Map<String, Thread> threads;
 
-    public keepAliveManager(Server server, Map<String, RemoteServerInterface> cluster) {
+    public KeepAliveManager(Server server, Map<String, RemoteServerInterface> cluster) {
         this.server = server;
         this.cluster = cluster;
         threads = new HashMap<>();

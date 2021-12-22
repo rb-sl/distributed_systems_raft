@@ -9,7 +9,5 @@
       "registryIP": "127.0.0.1",
       "registryPort": "1099"
     }
-  ],
-  "known_addresses": [],
-  "variables": {"ciao":1,"hey":2}
+  ]
 }

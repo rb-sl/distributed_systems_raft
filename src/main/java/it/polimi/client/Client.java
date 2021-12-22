@@ -1,27 +1,60 @@
 package it.polimi.client;
 
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
 import it.polimi.exceptions.NotLeaderException;
 import it.polimi.networking.RemoteServerInterface;
+import it.polimi.server.ServerConfiguration;
 
-import java.io.BufferedReader;
-import java.io.Console;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.net.SocketTimeoutException;
+import java.io.*;
+import java.lang.reflect.Type;
+import java.net.InetAddress;
+import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.rmi.NotBoundException;
+import java.rmi.Remote;
 import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
-import java.util.List;
-import java.util.Scanner;
 import java.util.concurrent.ThreadLocalRandom;
 
-public class Client {
+public class Client implements Remote, Serializable {
     private final static String TIMEOUT = "10000"; // 10 seconds
     private RemoteServerInterface raft;
+    private Integer requestSerialnumber;
+    
+    private String id;
+    private InetAddress raftRegistryIp;
+    private Integer raftRegistryPort;
+    
+    private final Gson gson = new Gson();
 
     public Client() {
+        this("client1");
+    }
+    
+    public Client(String clientName) {
         System.setProperty("sun.rmi.transport.tcp.responseTimeout", TIMEOUT);
+        
+        this.id = clientName;
+
+        ClientConfiguration clientConfiguration;
+        try {
+            Path storage = Paths.get("./client_configuration/" + clientName + ".json");
+            Type type = new TypeToken<ClientConfiguration>(){}.getType();
+            clientConfiguration = gson.fromJson(Files.readString(storage), type);
+        } catch (NoSuchFileException e) {
+            System.err.println("Cannot find configuration for client '" + clientName + "'. Terminating.");
+            return;
+        } catch(IOException e) {
+            e.printStackTrace();
+            return;
+        }
+        
+        raftRegistryIp = clientConfiguration.getRaftRegistryIP();
+        raftRegistryPort = clientConfiguration.getRaftRegistryPort();        
 
         // When a client first starts up, it connects to a randomly chosen server
         raft = connectToRandomServer();
@@ -29,9 +62,11 @@ public class Client {
             return;
         }
 
+        requestSerialnumber = 0;
+
         // If the client’s first choice is not the leader, that server will reject the client’s request and supply
         // information about the most recent leader
-        Integer response = readFromCluster("x");
+//        Integer response = readFromCluster("x");
 
 //        System.out.println("response: " + response);
 //
@@ -43,10 +78,10 @@ public class Client {
         Registry registry;
         String[] availableServers;
         try {
-            registry = LocateRegistry.getRegistry("127.0.0.1");
+            registry = LocateRegistry.getRegistry(this.raftRegistryIp.getHostAddress(), this.raftRegistryPort);
             availableServers = registry.list();
         } catch (RemoteException e) {
-            System.err.println("No local registry available");
+            System.err.println("No registry available at " + this.raftRegistryIp + ":" + this.raftRegistryPort);
             return null;
         }
 
@@ -67,11 +102,12 @@ public class Client {
         boolean requestComplete = false;
         while (!requestComplete) {
             try {
-                result = raft.read(variable);
+                result = raft.read(this.id, this.requestSerialnumber, variable);
+                this.requestSerialnumber++;
                 requestComplete = true;
             } catch (RemoteException e) {
                 System.err.println("Connection error, retrying...");
-//                e.printStackTrace();
+                e.printStackTrace();
                 raft = connectToRandomServer();
             } catch (NotLeaderException e) {
                 System.err.println(e + ". Connecting to leader");
@@ -86,7 +122,8 @@ public class Client {
         boolean requestComplete = false;
         while (!requestComplete) {
             try {
-                nWritten = raft.write(variable, value);
+                nWritten = raft.write(this.id, this.requestSerialnumber, variable, value);
+                this.requestSerialnumber++;
                 requestComplete = true;
             } catch (RemoteException e) {
                 System.err.println("Connection error, retrying...");

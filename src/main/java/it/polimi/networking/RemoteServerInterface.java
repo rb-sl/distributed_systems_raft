@@ -56,6 +56,24 @@ public interface RemoteServerInterface extends Remote {
         void updateCluster(String serverName, RemoteServerInterface serverInterface) throws RemoteException;
 
         // Methods called by clients
-        Integer read(String variable) throws RemoteException, NotLeaderException;
-        Integer write(String variable, Integer value) throws RemoteException, NotLeaderException;
+        /**
+         * Asks the leader of the cluster a variable's value
+         * @param clientRequestNumber The number assigned to the request by the client
+         * @param variable The variable's name
+         * @return The variable value
+         * @throws RemoteException Roba di RMI
+         * @throws NotLeaderException When the queried server is not the leader
+         */
+        Integer read(String clientId, Integer clientRequestNumber, String variable) throws RemoteException, NotLeaderException;
+
+        /**
+         * Asks the leader of the cluster to write a variable's value.
+         * @param clientRequestNumber The number assigned to the request by the client
+         * @param variable The variable's name
+         * @param value The variable's value
+         * @return The number of written elements
+         * @throws RemoteException Roba di RMI
+         * @throws NotLeaderException When the queried server is not the leader
+         */
+        Integer write(String clientId, Integer clientRequestNumber, String variable, Integer value) throws RemoteException, NotLeaderException;
 }

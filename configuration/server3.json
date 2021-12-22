@@ -9,7 +9,5 @@
     {
       "name": "server2"
     }
-  ],
-  "known_addresses": [],
-  "variables": {"ciao":1,"hey":2}
+  ]
 }

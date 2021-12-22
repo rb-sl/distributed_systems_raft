@@ -9,7 +9,7 @@ public class Result extends Message {
 
     public Result(Integer requestNumber, int term, boolean success) {
         super.messageType = Type.Result;
-        super.requestNumber = requestNumber;
+        super.internalRequestNumber = requestNumber;
         this.term = term;
         this.success = success;
     }

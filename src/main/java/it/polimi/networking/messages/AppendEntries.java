@@ -3,7 +3,6 @@ package it.polimi.networking.messages;
 import it.polimi.networking.RemoteServerInterface;
 import it.polimi.server.log.LogEntry;
 import lombok.Getter;
-import lombok.Setter;
 
 import java.util.SortedMap;
 
@@ -20,7 +19,7 @@ public class AppendEntries extends Message {
                          Integer prevLogIndex, Integer prevLogTerm, SortedMap<Integer, LogEntry> newEntries,
                          Integer leaderCommit) {
         super.messageType = Type.AppendEntry;
-        super.requestNumber = requestNumber;
+        super.internalRequestNumber = requestNumber;
         super.origin = origin;
         this.term = term;
         this.leaderId = leaderId;

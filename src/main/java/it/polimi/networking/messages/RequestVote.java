@@ -14,7 +14,7 @@ public class RequestVote extends Message{
     public RequestVote(Integer requestNumber, RemoteServerInterface origin, int term, String candidateId,
                        Integer lastLogIndex, Integer lastLogTerm) {
         super.messageType = Type.RequestVote;
-        super.requestNumber = requestNumber;
+        super.internalRequestNumber = requestNumber;
         super.origin = origin;
         this.candidateId = candidateId;
         this.term = term;

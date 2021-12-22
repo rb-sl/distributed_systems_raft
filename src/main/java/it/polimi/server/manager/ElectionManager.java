@@ -1,4 +1,4 @@
-package it.polimi.server.leaderElection;
+package it.polimi.server.manager;
 
 import it.polimi.networking.RemoteServerInterface;
 import it.polimi.networking.messages.Message;
@@ -6,12 +6,10 @@ import it.polimi.server.Server;
 
 import java.rmi.RemoteException;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 public class ElectionManager {
-
     private Server server;
     private final Map<String, RemoteServerInterface> activeCluster;
 

@@ -6,8 +6,10 @@ import it.polimi.exceptions.NotLeaderException;
 import it.polimi.networking.ClientResult;
 import it.polimi.networking.RemoteServerInterface;
 import it.polimi.networking.messages.*;
-import it.polimi.server.leaderElection.ElectionManager;
+import it.polimi.server.manager.ClientManager;
+import it.polimi.server.manager.ElectionManager;
 import it.polimi.server.log.LogEntry;
+import it.polimi.server.manager.KeepAliveManager;
 import it.polimi.server.state.Candidate;
 import it.polimi.server.state.Follower;
 import it.polimi.server.state.Leader;
@@ -35,7 +37,7 @@ public class Server implements RemoteServerInterface {
     /**
      * Server state
      */
-    @Getter(AccessLevel.PROTECTED)
+    @Getter
     private State serverState;
 
     /**
@@ -72,19 +74,19 @@ public class Server implements RemoteServerInterface {
      * Number sent to other servers to couple requests
      * with responses
      */
-    private static Integer requestNumber = 0;
+    private static Integer internalRequestNumber = 0;
 
     /**
      * Object to synchronize requestNumber
      */
     private static final Object reqNumBlock = new Object();
 
-    private static final Map<Integer, ClientResult> clientResponse = new HashMap<>();
-    private static final Object clientResponseSync = new Object();
+    @Getter
+    private ClientManager clientManager;
 
     private ElectionManager electionManager;
 
-    private keepAliveManager keepAliveManager;
+    private KeepAliveManager keepAliveManager;
 
     private final Gson gson = new Gson();
 
@@ -102,6 +104,8 @@ public class Server implements RemoteServerInterface {
     public Server(String serverName) {
         this.cluster = new HashMap<>();
         outgoingRequests = new HashMap<>();
+               
+        clientManager = new ClientManager(this);
 
         this.id = serverName;
 
@@ -185,8 +189,8 @@ public class Server implements RemoteServerInterface {
                     case Result -> {
                         result = (Result) message;
                         synchronized (outgoingSync) {
-                            if (outgoingRequests.containsKey(result.getRequestNumber())) {
-                                Message.Type type = outgoingRequests.remove(result.getRequestNumber());
+                            if (outgoingRequests.containsKey(result.getInternalRequestNumber())) {
+                                Message.Type type = outgoingRequests.remove(result.getInternalRequestNumber());
                                 this.serverState.processResult(type, result);
                             } else {
                                 // If the request was not added yet it is re-enqueued
@@ -220,10 +224,12 @@ public class Server implements RemoteServerInterface {
                     case ReadRequest -> {
                         ReadRequest readRequest = (ReadRequest) message;
                         if(this.serverState.getRole() == State.Role.Leader) {
-                            clientRequestComplete(message.getRequestNumber(), this.serverState.getVariable(readRequest.getVariable()));
+                            clientManager.clientRequestComplete(readRequest.getInternalRequestNumber(), readRequest.getClientRequestNumber(), 
+                                    this.serverState.getVariable(readRequest.getVariable()));
                         }
                         else {
-                            clientRequestError(readRequest.getRequestNumber(), ClientResult.Status.NOTLEADER);
+                            clientManager.clientRequestError(readRequest.getInternalRequestNumber(), readRequest.getClientRequestNumber(), 
+                                    ClientResult.Status.NOTLEADER);
                         }
                     }
                     case WriteRequest -> {
@@ -231,11 +237,13 @@ public class Server implements RemoteServerInterface {
                         if(this.serverState.getRole() == State.Role.Leader) {
                             // If command received from client: append entry to local log,
                             // respond after entry applied to state machine (§5.3)
-                            serverState.getLogger().addEntry(serverState.getCurrentTerm(), writeRequest.getVariable(), writeRequest.getValue(), message.getRequestNumber());
+                            serverState.getLogger().addEntry(serverState.getCurrentTerm(), writeRequest.getVariable(), 
+                                    writeRequest.getValue(), message.getInternalRequestNumber(), writeRequest.getClientRequestNumber());
                             serverState.logAdded();
                         }
                         else {
-                            clientRequestError(writeRequest.getRequestNumber(), ClientResult.Status.NOTLEADER);
+                            clientManager.clientRequestError(writeRequest.getInternalRequestNumber(), writeRequest.getClientRequestNumber(), 
+                                    ClientResult.Status.NOTLEADER);
                         }
                     }
                     case UpdateIndex -> this.serverState.setCommitIndex(((UpdateIndex) message).getCommitIndex());
@@ -346,12 +354,8 @@ public class Server implements RemoteServerInterface {
      * {@inheritDoc}
      */
     public int appendEntries(RemoteServerInterface origin, int term, String leaderId, Integer prevLogIndex, Integer prevLogTerm, SortedMap<Integer, LogEntry> newEntries, Integer leaderCommit) throws RemoteException {
-        int currentRequest = -1;
-
-        synchronized (reqNumBlock) {
-            currentRequest = requestNumber;
-            requestNumber++;
-        }
+        int currentRequest = nextRequestNumber();
+        
         enqueue(new AppendEntries(currentRequest, origin, term, leaderId, prevLogIndex, prevLogTerm, newEntries, leaderCommit));
 
         return currentRequest;
@@ -370,14 +374,14 @@ public class Server implements RemoteServerInterface {
         // 1. Reply false if term < currentTerm (§5.1)
         if(currentTerm != null && message.getTerm() < currentTerm) {
             System.out.println("AppendEntries ignored: term " + message.getTerm() + " < " + currentTerm);
-            return new Result(message.getRequestNumber(), currentTerm, false);
+            return new Result(message.getInternalRequestNumber(), currentTerm, false);
         }
 
         // 2. Reply false if log does not contain an entry at prevLogIndex
         // whose term matches prevLogTerm (§5.3)
         if(message.getPrevLogTerm() != null && !message.getPrevLogTerm().equals(this.serverState.getLogger().termAtPosition(message.getPrevLogIndex()))) {
             System.out.println("AppendEntries ignored: no log entry at prevLogIndex = " + message.getPrevLogIndex());
-            return new Result(message.getRequestNumber(), currentTerm, false);
+            return new Result(message.getInternalRequestNumber(), currentTerm, false);
         }
 
         if(message.getNewEntries() != null) {
@@ -405,16 +409,12 @@ public class Server implements RemoteServerInterface {
             this.serverState.setCommitIndex(newIndex);
         }
 
-        return new Result(message.getRequestNumber(), currentTerm, true);
+        return new Result(message.getInternalRequestNumber(), currentTerm, true);
     }
 
     public int requestVote(RemoteServerInterface origin, int term, String candidateId, Integer lastLogIndex, Integer lastLogTerm) throws RemoteException {
-        int currentRequest = -1;
-
-        synchronized (reqNumBlock) {
-            currentRequest = requestNumber;
-            requestNumber++;
-        }
+        int currentRequest = nextRequestNumber();
+        
         enqueue(new RequestVote(currentRequest, origin, term, candidateId, lastLogIndex, lastLogTerm));
 
         return currentRequest;
@@ -443,7 +443,7 @@ public class Server implements RemoteServerInterface {
 
         // 1. Reply false if term < currentTerm (§5.1)
         if(term < currentTerm) {
-            return new Result(message.getRequestNumber(), currentTerm, false);
+            return new Result(message.getInternalRequestNumber(), currentTerm, false);
         }
 
         // 2. If votedFor is null or candidateId, and candidate’s log is at
@@ -460,10 +460,19 @@ public class Server implements RemoteServerInterface {
             this.serverState.receivedMsg(term);
 
             System.out.println(Thread.currentThread().getId() + " [Term " + currentTerm + "] Voted for " + candidateId);
-            return new Result(message.getRequestNumber(), currentTerm, true);
+            return new Result(message.getInternalRequestNumber(), currentTerm, true);
         }
 
-        return new Result(message.getRequestNumber(), currentTerm, false);
+        return new Result(message.getInternalRequestNumber(), currentTerm, false);
+    }
+    
+    public Integer nextRequestNumber() {
+        Integer currentRequest;
+        synchronized (reqNumBlock) {
+            currentRequest = internalRequestNumber;
+            internalRequestNumber++;
+        }
+        return currentRequest;
     }
 
     @Override
@@ -472,7 +481,7 @@ public class Server implements RemoteServerInterface {
     }
 
     public void startKeepAlive() {
-        this.keepAliveManager = new keepAliveManager(this, cluster);
+        this.keepAliveManager = new KeepAliveManager(this, cluster);
         this.keepAliveManager.startKeepAlive();
     }
 
@@ -485,64 +494,16 @@ public class Server implements RemoteServerInterface {
         }
     }
 
-    private Integer waitResponse(Integer currentRequest) throws NotLeaderException {
-        synchronized (clientResponseSync) {
-            while(!clientResponse.containsKey(currentRequest)) {
-                try {
-                    clientResponseSync.wait();
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
-            }
-
-            ClientResult response = clientResponse.remove(currentRequest);
-            if(response.getStatus() == ClientResult.Status.NOTLEADER) {
-                throw new NotLeaderException(this.id + " is not a leader", leader);
-            }
-            return response.getResult();
-        }
+    @Override
+    public Integer read(String clientId, Integer clientRequestNumber, String variable) throws RemoteException, NotLeaderException {
+        return clientManager.read(clientId, clientRequestNumber, variable);
     }
 
     @Override
-    public Integer read(String variable) throws RemoteException, NotLeaderException {
-        Integer currentRequest;
-        synchronized (reqNumBlock) {
-            currentRequest = requestNumber;
-            requestNumber++;
-        }
-        enqueue(new ReadRequest(currentRequest, variable));
-
-        return waitResponse(currentRequest);
+    public Integer write(String clientId, Integer clientRequestNumber, String variable, Integer value) throws RemoteException, NotLeaderException {
+        return clientManager.write(clientId, clientRequestNumber, variable, value);
     }
 
-    @Override
-    public Integer write(String variable, Integer value) throws RemoteException, NotLeaderException {
-        Integer currentRequest;
-        synchronized (reqNumBlock) {
-            currentRequest = requestNumber;
-            requestNumber++;
-        }
-        enqueue(new WriteRequest(currentRequest, variable, value));
-
-        // An answer is provided only after that the request has been applied to the
-        // state machine
-        return waitResponse(currentRequest);
-    }
-
-    public void clientRequestComplete(Integer requestNumber, Integer result) {
-        addClientResponse(requestNumber, result, ClientResult.Status.OK);
-    }
-
-    public void clientRequestError(Integer requestNumber, ClientResult.Status status) {
-        addClientResponse(requestNumber, null, status);
-    }
-
-    private void addClientResponse(Integer requestNumber, Integer result, ClientResult.Status status) {
-        synchronized (clientResponseSync) {
-            clientResponse.put(requestNumber, new ClientResult(result, status));
-            clientResponseSync.notifyAll();
-        }
-    }
 
     /**
      * Updates the server state

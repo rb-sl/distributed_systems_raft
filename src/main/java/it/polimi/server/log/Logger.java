@@ -91,7 +91,7 @@ public class Logger {
         return entries.tailMap(next);
     }
 
-    public void addEntry(int term, String variable, Integer value, Integer requestNumber) {
+    public void addEntry(int term, String variable, Integer value, Integer requestNumber, Integer clientRequestNumber) {
         Integer nextKey;
         try {
             nextKey = entries.lastKey() + 1;
@@ -99,7 +99,7 @@ public class Logger {
             nextKey = 0;
         }
 
-        entries.put(nextKey, new LogEntry(term, variable, value, requestNumber, nextKey));
+        entries.put(nextKey, new LogEntry(term, variable, value, requestNumber, clientRequestNumber, nextKey));
 
         printLog();
     }

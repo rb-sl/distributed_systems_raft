@@ -1,0 +1,6 @@
+{
+  "name": "client1",
+  "raftRegistryIP": "127.0.0.1",
+  "raftRegistryPort": "1099",
+  "isAdmin": false
+}
