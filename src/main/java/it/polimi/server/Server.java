@@ -224,6 +224,11 @@ public class Server implements RemoteServerInterface {
                     case ReadRequest -> {
                         ReadRequest readRequest = (ReadRequest) message;
                         if(this.serverState.getRole() == State.Role.Leader) {
+                            // [...] a leader must check whether it has been deposed before processing a read-only 
+                            // request [...] by having the leader exchange heartbeat messages with a majority of the 
+                            // cluster before responding
+                            this.serverState.waitForConfirmation();
+                            
                             clientManager.clientRequestComplete(readRequest.getInternalRequestNumber(), readRequest.getClientRequestNumber(), 
                                     this.serverState.getVariable(readRequest.getVariable()));
                         }

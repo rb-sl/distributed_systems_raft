@@ -29,6 +29,9 @@ public class Leader extends State {
 
     private static final Map<Integer, Result> receiptResults = new HashMap<>();
     private static final Object receiptSync = new Object();
+    
+    private static Map<String, Boolean> readConfirmed;
+    private static final Object readConfirmedSync = new Object();
 
     public Leader(State state) {
         this(state.server, state.currentTerm, state.votedFor, state.logger, commitIndex, state.lastApplied);
@@ -40,6 +43,7 @@ public class Leader extends State {
 
         matchIndex = new HashMap<>();
         replicationThreads = new HashMap<>();
+        readConfirmed = new HashMap<>();
 
         Integer lastIndex = getLastLogIndex();
 
@@ -48,7 +52,7 @@ public class Leader extends State {
             nextLogIndex = lastIndex + 1;
         }
 
-//        nextIndex.put(server.getId(), nextLogIndex);
+//        nextIndex.put(server.getId(), nextLogIndex); todo same
 //        matchIndex.put(server.getId(), lastIndex);
 
         for(String id: server.getServersInCluster()) {
@@ -67,6 +71,46 @@ public class Leader extends State {
         // to prevent election timeouts (§5.2)
         this.server.startKeepAlive();
         this.startReplication(server.getCluster());
+        
+        // [...] a leader must have the latest information on which entries are committed. The Leader Completeness 
+        // Property guarantees that a leader has all committed entries, but at the start of its term, it may not know 
+        // which those are. To find out, it needs to commit an entry from its term. Raft handles this by having each 
+        // leader commit a blank no-op entry into the log at the start of its term.
+        getLogger().addEntry(currentTerm, null, null, null, null);
+        logAdded();
+    }
+    
+    @Override
+    public boolean needsConfirmation(String serverId) {
+        synchronized (readConfirmedSync) {
+            Boolean result = readConfirmed.get(serverId);
+            return result == null || !result;
+        }
+    }
+    
+    @Override
+    public void confirmAppend(String serverId) {
+        synchronized (readConfirmedSync) {
+            readConfirmed.put(serverId, true);
+            readConfirmedSync.notifyAll();
+        }
+    }
+    
+    @Override
+    public void waitForConfirmation() {
+        synchronized (readConfirmedSync) {
+            readConfirmed.replaceAll((id, x) -> x = Boolean.FALSE);
+            
+            // +1 on both sides to account for the leader itself
+            while (readConfirmed.values().stream().filter(x -> x).count() + 1 <= (readConfirmed.size() + 1) / 2) {
+                try {
+                    readConfirmedSync.wait();
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+            System.out.println("Confirmed " + readConfirmed.values().stream().filter(x -> x).count()+"/"+readConfirmed.size());
+        }        
     }
 
     public void startReplication(Map<String, RemoteServerInterface> cluster) {
@@ -110,7 +154,7 @@ public class Leader extends State {
                 }
                 int receipt;
                 try {
-                    synchronized (pendingRequests) {
+                    synchronized (receiptSync) {
                         receipt = serverInterface.appendEntries(this.server, currentTerm, this.server.getId(),
                                 prevLogIndex, logger.termAtPosition(prevLogIndex), logger.getEntriesSince(next), commit);
 
@@ -206,15 +250,13 @@ public class Leader extends State {
         super.processResult(type, result);
 
         Integer requestNumber = result.getInternalRequestNumber();
-        synchronized (pendingRequests) {
+        synchronized (receiptSync) {
             if (type == Message.Type.AppendEntry && pendingRequests.contains(requestNumber)) {
                 // Wakes up threads waiting for follower's answers
                 pendingRequests.remove(requestNumber);
 
-                synchronized (receiptSync) {
                     receiptResults.put(requestNumber, result);
                     receiptSync.notifyAll();
-                }
             }
         }
     }

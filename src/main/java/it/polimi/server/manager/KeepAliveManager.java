@@ -1,7 +1,6 @@
 package it.polimi.server.manager;
 
 import it.polimi.networking.RemoteServerInterface;
-import it.polimi.networking.messages.Result;
 import it.polimi.server.Server;
 import it.polimi.server.state.State;
 
@@ -59,16 +58,22 @@ public class KeepAliveManager {
     private void keepAlive(String serverId, RemoteServerInterface serverInterface) {
         Integer term = this.server.getServerState().getCurrentTerm();
         String originId = this.server.getId();
+        State serverState = server.getServerState();
 
         while(!Thread.currentThread().isInterrupted()) {
             try {
                 serverInterface.appendEntries(this.server, term, originId, null,
-                        null, null, this.server.getServerState().getCommitIndex());
+                        null, null, null);
             } catch (RemoteException e) {
                 // Host unreachable
                 System.err.println(Thread.currentThread().getId() + " [KeepAlive] " + serverId + " unreachable");
             }
-
+            
+            // Confirms keep alive for client reads
+            if(serverState.needsConfirmation(serverId)) {
+                serverState.confirmAppend(serverId);
+            }
+            
             try {
                 Thread.sleep(KEEPALIVE_INTERVAL);
             } catch (InterruptedException e) {

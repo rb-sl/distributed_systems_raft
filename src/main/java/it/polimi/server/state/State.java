@@ -22,7 +22,6 @@ import java.nio.file.Paths;
 import java.util.*;
 
 public abstract class State {
-
     /**
      *The state's role
      */
@@ -62,14 +61,14 @@ public abstract class State {
     // Volatile state on all servers:
 
     /**
-     * Index of highest log entry known to be committed (initialized to 0, increases monotonically)
+     * Index of the highest log entry known to be committed (initialized to 0, increases monotonically)
      */
     protected static Integer commitIndex;
 
     protected static final Object commitIndexSync = new Object();
 
     /**
-     * Index of highest log entry applied to state machine (initialized to 0, increases monotonically)
+     * Index of the highest log entry applied to state machine (initialized to 0, increases monotonically)
      */
     @Getter @Setter
     protected Integer lastApplied;
@@ -77,8 +76,9 @@ public abstract class State {
     /**
      * Stored variables
      */
-    protected Map<String, Integer> variables; // TODO Maybe use as synchronized?
-
+    protected Map<String, Integer> variables;
+    private static final Object variableSync = new Object();
+    
     /**
      * Persistent storage for variables
      */
@@ -105,7 +105,7 @@ public abstract class State {
      * @param server The server
      */
     public State(Server server, Map<String, Integer> variables) {
-        this(server, null, null, new Logger(), null, null);
+        this(server, null, null, new Logger(server), null, null);
 
         System.out.println("Restored variables: " + this.variables);
     }
@@ -116,15 +116,15 @@ public abstract class State {
      * @param currentTerm The current term
      * @param votedFor Candidate that received vote on current term
      * @param logger The logger
-     * @param commitIndex Index of highest log entry known to be committed
-     * @param lastApplied Index of highest log entry applied to state machine
+     * @param localCommitIndex Index of the highest log entry known to be committed
+     * @param lastApplied Index of the highest log entry applied to state machine
      */
-    public State(Server server, Integer currentTerm, String votedFor, Logger logger, Integer commitIndex, Integer lastApplied) {
+    public State(Server server, Integer currentTerm, String votedFor, Logger logger, Integer localCommitIndex, Integer lastApplied) {
         this.server = server;
         this.currentTerm = currentTerm;
         this.votedFor = votedFor;
         this.logger = logger;
-        this.commitIndex = commitIndex;
+        commitIndex = localCommitIndex;
         this.lastApplied = lastApplied;
 
         this.storage = Paths.get("./configuration/" + server.getId() + "_storage.json");
@@ -153,26 +153,19 @@ public abstract class State {
 
         try {
             Type type = new TypeToken<Map<String, Integer>>() {}.getType();
-            this.variables = gson.fromJson(Files.readString(storage), type);
+            synchronized (variableSync) {
+                this.variables = gson.fromJson(Files.readString(storage), type);
+            }
         } catch(NullPointerException | JsonIOException | IOException e) {
             e.printStackTrace();
         } catch (JsonSyntaxException e) {
             // With a corrupted file variables are reinitialized
-            this.variables = new HashMap<>();
+            synchronized (variableSync) {
+                this.variables = new HashMap<>();
+            }
         }
-
-        System.out.println(this.variables);
     }
-
-    /**
-     * Write the last commit on file
-     * @param toWrite What to write
-     * @throws IOException When there's an error in input output functions
-     */
-    private void writeCommit(String toWrite) throws IOException {
-        Files.write(storage, toWrite.getBytes());
-    }
-
+    
     /**
      * Increase current term value
      */
@@ -200,11 +193,11 @@ public abstract class State {
 
     /**
      * Setter for commitIndex, with a check on unapplied logs
-     * @param commitIndex The commit index
+     * @param localCommitIndex The commit index
      */
-    public void setCommitIndex(int commitIndex) {
+    public void setCommitIndex(int localCommitIndex) {
         synchronized (commitIndexSync) {
-            commitIndex = commitIndex;
+            commitIndex = localCommitIndex;
 
             Integer last = this.lastApplied;
             if (last == null) {
@@ -212,8 +205,8 @@ public abstract class State {
             }
 
             // If commitIndex > lastApplied: increment lastApplied, apply log[lastApplied] to state machine (§5.3)
-            if (commitIndex > last) {
-                for (int i = last + 1; i <= commitIndex; i++) {
+            if (localCommitIndex > last) {
+                for (int i = last + 1; i <= localCommitIndex; i++) {
                     try {
                         LogEntry entry = this.logger.getEntry(i);
                         applyToStateMachine(entry);
@@ -237,14 +230,23 @@ public abstract class State {
         if(entry == null) {
             return;
         }
+        
         String key = entry.getVarName();
+        if(key == null) {
+            // Case of no-op
+            return;
+        }
+        
         Integer val = entry.getValue();
-
-        this.variables.put(key, val);
-        try {
-            writeCommit(gson.toJson(variables));
-        } catch (IOException e) {
-            e.printStackTrace();
+        synchronized (variableSync) {
+            this.variables.put(key, val);
+        }
+        logger.takeSnapshot();
+    }
+    
+    public Map<String, Integer> getVariables() {
+        synchronized (variableSync) {
+            return new HashMap<>(this.variables);
         }
     }
 
@@ -274,8 +276,18 @@ public abstract class State {
         startMinElectionTimer();
     }
 
+    public boolean needsConfirmation(String serverId) {
+        return false;
+    }
+    
+    public void confirmAppend(String serverId) {}
+
+    public void waitForConfirmation() {}
+
     public Integer getVariable(String varName) {
-        return variables.get(varName);
+        synchronized (variableSync) {
+            return variables.get(varName);
+        }
     }
 
     /**

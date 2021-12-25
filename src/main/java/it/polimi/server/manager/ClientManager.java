@@ -75,7 +75,6 @@ public class ClientManager {
         }
         return response.getResult();
     }
-
     
     public Integer write(String clientId, Integer clientRequestNumber, String variable, Integer value) throws RemoteException, NotLeaderException {
         Integer latestResponse = getCachedResult(clientId, clientRequestNumber);

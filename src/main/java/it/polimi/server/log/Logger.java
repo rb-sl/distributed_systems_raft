@@ -1,5 +1,12 @@
 package it.polimi.server.log;
 
+import com.google.gson.Gson;
+import it.polimi.server.Server;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.*;
 
 public class Logger {
@@ -8,9 +15,23 @@ public class Logger {
      * The map is ordered on the log index
      */
     private SortedMap<Integer, LogEntry> entries;
+    
+    private final Server server;
 
-    public Logger() {
+    /**
+     * Persistent storage for variables
+     */
+    protected final Path storage;
+
+    /**
+     * Gson object
+     */
+    protected final Gson gson = new Gson();
+
+    public Logger(Server server) {
+        this.server = server;
         this.entries = new TreeMap<>();
+        this.storage = Paths.get("./configuration/" + server.getId() + "_snapshot.json");
     }
 
     /**
@@ -102,5 +123,24 @@ public class Logger {
         entries.put(nextKey, new LogEntry(term, variable, value, requestNumber, clientRequestNumber, nextKey));
 
         printLog();
+    }
+    
+    public void takeSnapshot() {
+        Integer commitIndex = this.server.getServerState().getCommitIndex();
+        Snapshot snapshot = new Snapshot(this.server.getServerState().getVariables(), commitIndex, termAtPosition(commitIndex));
+        try {
+            writeSnapshot(gson.toJson(snapshot));
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Write the last commit on file
+     * @param toWrite What to write
+     * @throws IOException When there's an error in input output functions
+     */
+    private void writeSnapshot(String toWrite) throws IOException {
+        Files.write(storage, toWrite.getBytes());
     }
 }

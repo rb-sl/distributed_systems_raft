@@ -107,7 +107,7 @@ public class Client implements Remote, Serializable {
                 requestComplete = true;
             } catch (RemoteException e) {
                 System.err.println("Connection error, retrying...");
-                e.printStackTrace();
+//                e.printStackTrace();
                 raft = connectToRandomServer();
             } catch (NotLeaderException e) {
                 System.err.println(e + ". Connecting to leader");
