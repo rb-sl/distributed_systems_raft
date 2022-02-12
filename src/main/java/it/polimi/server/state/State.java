@@ -208,7 +208,7 @@ public abstract class State {
             if (localCommitIndex > last) {
                 for (int i = last + 1; i <= localCommitIndex; i++) {
                     try {
-                        LogEntry entry = this.logger.getEntry(i);
+                        LogEntry entry = this.logger.getEntry(i); // todo why null?
                         applyToStateMachine(entry);
 
                         // Returns response to client
@@ -230,12 +230,15 @@ public abstract class State {
         if(entry == null) {
             return;
         }
+
+//        this.lastApplied = Math.max(entry.getIndex(), this.lastApplied);
+        this.lastApplied = entry.getIndex();
         
         String key = entry.getVarName();
         if(key == null) {
             // Case of no-op
             return;
-        }
+        }        
         
         Integer val = entry.getValue();
         synchronized (variableSync) {

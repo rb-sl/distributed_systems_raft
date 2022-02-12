@@ -8,7 +8,7 @@ import java.io.Serializable;
 @Getter
 public abstract class Message implements Serializable {
     public enum Type {
-        AppendEntry, RequestVote, Result, StateTransition, StartElection, WriteRequest, ReadRequest, UpdateIndex
+        AppendEntry, RequestVote, Result, StateTransition, StartElection, WriteRequest, ReadRequest, UpdateIndex, InstallSnapshot;
     }
 
     protected Type messageType;

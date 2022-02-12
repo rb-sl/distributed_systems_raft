@@ -47,8 +47,9 @@ public class ElectionManager {
         Thread thread;
 
         for (Map.Entry<String, RemoteServerInterface> entry : this.activeCluster.entrySet()) {
-            if(!entry.getKey().equals(server.getId())) {
+            if(!entry.getKey().equals(server.getId())) {                
                 thread = new Thread(() -> askForVote(entry.getValue(), this.term, this.lastLogIndex, this.lastLogTerm));
+                thread.setDaemon(true);
                 electionThreads.add(thread);
                 thread.start();
             }

@@ -129,6 +129,7 @@ public class Leader extends State {
         }
 
         thread = new Thread(() -> replicate(serverId, serverInterface));
+        thread.setDaemon(true);
         replicationThreads.put(serverId, thread);
         thread.start();
     }
@@ -254,9 +255,8 @@ public class Leader extends State {
             if (type == Message.Type.AppendEntry && pendingRequests.contains(requestNumber)) {
                 // Wakes up threads waiting for follower's answers
                 pendingRequests.remove(requestNumber);
-
-                    receiptResults.put(requestNumber, result);
-                    receiptSync.notifyAll();
+                receiptResults.put(requestNumber, result);
+                receiptSync.notifyAll();
             }
         }
     }

@@ -6,6 +6,7 @@ import it.polimi.exceptions.NotLeaderException;
 import it.polimi.networking.ClientResult;
 import it.polimi.networking.RemoteServerInterface;
 import it.polimi.networking.messages.*;
+import it.polimi.server.log.Snapshot;
 import it.polimi.server.manager.ClientManager;
 import it.polimi.server.manager.ElectionManager;
 import it.polimi.server.log.LogEntry;
@@ -16,7 +17,10 @@ import it.polimi.server.state.Leader;
 import it.polimi.server.state.State;
 import lombok.*;
 
+import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.RandomAccessFile;
 import java.lang.reflect.Type;
 import java.net.InetAddress;
 import java.nio.file.Files;
@@ -186,6 +190,7 @@ public class Server implements RemoteServerInterface {
                 switch (message.getMessageType()) {
                     case AppendEntry -> result = appendEntries((AppendEntries) message);
                     case RequestVote -> result = requestVote((RequestVote) message);
+                    case InstallSnapshot -> result = installSnapshot(((InstallSnapshot) message));
                     case Result -> {
                         result = (Result) message;
                         synchronized (outgoingSync) {
@@ -479,6 +484,72 @@ public class Server implements RemoteServerInterface {
         }
         return currentRequest;
     }
+
+    @Override
+    public int installSnapshot(RemoteServerInterface origin, int term, String leaderId, Integer lastIncludedIndex, Integer lastIncludedTerm, int offset, byte[] data, boolean done) throws RemoteException {
+        int currentRequest = nextRequestNumber();
+
+        enqueue(new InstallSnapshot(currentRequest, origin, term, leaderId, lastIncludedIndex, lastIncludedTerm, offset, data, done));
+
+        return currentRequest;
+    }
+
+    public Result installSnapshot(InstallSnapshot message) {
+        // 1. Reply immediately if term < currentTerm
+        if(message.getTerm() < this.serverState.getCurrentTerm()) {
+            return new Result(message.getInternalRequestNumber(), this.serverState.getCurrentTerm(), false);
+        }
+        
+        // 2. Create new snapshot file if first chunk (offset is 0)
+        Snapshot snapshot;
+        Path snapshotPath = this.serverState.getLogger().getStorage();
+        RandomAccessFile snapshotFile = null;
+        if(message.getOffset() == 0) {
+            try {
+                snapshotFile = new RandomAccessFile(Files.createFile(snapshotPath).toFile(), "rw");
+            } catch (IOException e) {
+                e.printStackTrace();
+                return new Result(message.getInternalRequestNumber(), this.serverState.getCurrentTerm(), false);
+            }
+            snapshot = new Snapshot(new HashMap<>(), message.getLastIncludedIndex(), message.getLastIncludedTerm());
+        }
+        else {
+            try {
+                snapshotFile = new RandomAccessFile(snapshotPath.toString(), "rw");
+            } catch (FileNotFoundException e) {
+                e.printStackTrace();
+                return new Result(message.getInternalRequestNumber(), this.serverState.getCurrentTerm(), false);
+            }
+        }
+        
+        // 3. Write data into snapshot file at given offset
+        try {
+            // If the file is not long enough it is extended
+            if(snapshotFile.length() < message.getOffset()) {
+                snapshotFile.setLength(message.getOffset());
+            }
+            snapshotFile.seek(message.getOffset());
+            snapshotFile.write(message.getData());
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        // 4. Reply and wait for more data chunks if done is false
+        if(!message.isDone()) {
+            return new Result(message.getInternalRequestNumber(), this.serverState.getCurrentTerm(), true);
+        }
+        
+        // 5. Save snapshot file, discard any existing or partial snapshot with a smaller index
+        
+        // 6. If existing log entry has same index and term as snapshot’s last included entry, retain log entries following it and reply
+        
+        // 7. Discard the entire log
+        
+        // 8. Reset state machine using snapshot contents (and load snapshot’s cluster configuration)
+
+        return new Result(message.getInternalRequestNumber(), this.serverState.getCurrentTerm(), true);
+    }
+
 
     @Override
     public void reply(Result result) throws RemoteException {

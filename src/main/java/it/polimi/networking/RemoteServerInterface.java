@@ -50,6 +50,9 @@ public interface RemoteServerInterface extends Remote {
          * @throws RemoteException Una cosa di RMI da mettere sempre, se no si incazza
          */
         int requestVote(RemoteServerInterface origin, int term, String candidateId, Integer lastLogIndex, Integer lastLogTerm) throws RemoteException;
+        
+        
+        int installSnapshot(RemoteServerInterface origin, int term, String leaderId, Integer lastIncludedIndex, Integer lastIncludedTerm, int offset, byte[] data, boolean done) throws RemoteException;
 
         void reply(Result result) throws RemoteException;
 

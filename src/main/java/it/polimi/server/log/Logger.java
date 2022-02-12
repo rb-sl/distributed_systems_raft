@@ -2,6 +2,7 @@ package it.polimi.server.log;
 
 import com.google.gson.Gson;
 import it.polimi.server.Server;
+import lombok.Getter;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -15,13 +16,18 @@ public class Logger {
      * The map is ordered on the log index
      */
     private SortedMap<Integer, LogEntry> entries;
+    private static Integer nextKey;
+    private static final Object entriesSync = new Object();
     
     private final Server server;
 
     /**
      * Persistent storage for variables
      */
+    @Getter
     protected final Path storage;
+    
+    private static Snapshot lastSnapshot;
 
     /**
      * Gson object
@@ -32,6 +38,7 @@ public class Logger {
         this.server = server;
         this.entries = new TreeMap<>();
         this.storage = Paths.get("./configuration/" + server.getId() + "_snapshot.json");
+        nextKey = 0;
     }
 
     /**
@@ -40,10 +47,20 @@ public class Logger {
      * @return Whether or not the log has an entry (on given term) with the given log index
      */
     public Integer termAtPosition(Integer position) {
-        if(position == null || entries.isEmpty() || !entries.containsKey(position)) {
-            return null;
+        synchronized (entriesSync) {
+            if (position == null) {
+                return null;
+            }
+            if(entries.isEmpty() || !entries.containsKey(position)) {  
+                if(lastSnapshot != null && lastSnapshot.getLastIncludedIndex().equals(position)) {
+                    return lastSnapshot.getLastIncludedTerm();
+                }
+                else {
+                    return null;
+                }
+            }
+            return entries.get(position).getTerm();
         }
-        return entries.get(position).getTerm();
     }
 
     /**
@@ -53,7 +70,9 @@ public class Logger {
      * @return Whether or not there is a conflict
      */
     public Boolean containConflict(Integer position, Integer term) {
-        return entries.containsKey(position) && (entries.get(position).getTerm() != term);
+        synchronized (entriesSync) {
+            return entries.containsKey(position) && (entries.get(position).getTerm() != term);
+        }
     }
 
     /**
@@ -61,7 +80,9 @@ public class Logger {
      * @param logIndex The log index
      */
     public void deleteFrom(int logIndex) {
-        entries.entrySet().removeIf(entry -> entry.getKey() >= logIndex);
+        synchronized (entriesSync) {
+            entries.entrySet().removeIf(entry -> entry.getKey() >= logIndex);
+        }
     }
 
     /**
@@ -70,8 +91,10 @@ public class Logger {
      * @param newEntries
      */
     public void appendNewEntries(SortedMap<Integer, LogEntry> newEntries) {
-        newEntries.forEach((key, log) -> entries.putIfAbsent(key, log));
-        printLog();
+        synchronized (entriesSync) {
+            newEntries.forEach((key, log) -> entries.putIfAbsent(key, log));
+            printLog();
+        }
     }
 
     public void printLog() {
@@ -87,7 +110,9 @@ public class Logger {
      * @throws NoSuchElementException
      */
     public int getLastIndex() throws NoSuchElementException{
-        return entries.lastKey();
+        synchronized (entriesSync) {
+            return entries.lastKey();
+        }
     }
 
     public LogEntry getEntry(Integer index) throws NoSuchElementException {
@@ -99,7 +124,9 @@ public class Logger {
             return null;
         }
         try {
-            return entries.headMap(index).lastKey();
+            synchronized (entriesSync) {
+                return entries.headMap(index).lastKey();
+            }
         } catch (NoSuchElementException e) {
             return null;
         }
@@ -109,30 +136,31 @@ public class Logger {
         if(next == null) {
             return null;
         }
-        return entries.tailMap(next);
+        synchronized (entriesSync) {
+            return entries.tailMap(next);
+        }
     }
 
     public void addEntry(int term, String variable, Integer value, Integer requestNumber, Integer clientRequestNumber) {
-        Integer nextKey;
-        try {
-            nextKey = entries.lastKey() + 1;
-        } catch (NoSuchElementException e) {
-            nextKey = 0;
+        synchronized (entriesSync) {
+            entries.put(nextKey, new LogEntry(term, variable, value, requestNumber, clientRequestNumber, nextKey));
+            nextKey++;
+            printLog();
         }
-
-        entries.put(nextKey, new LogEntry(term, variable, value, requestNumber, clientRequestNumber, nextKey));
-
-        printLog();
     }
     
     public void takeSnapshot() {
         Integer commitIndex = this.server.getServerState().getCommitIndex();
-        Snapshot snapshot = new Snapshot(this.server.getServerState().getVariables(), commitIndex, termAtPosition(commitIndex));
+        lastSnapshot = new Snapshot(this.server.getServerState().getVariables(), commitIndex, termAtPosition(commitIndex));
         try {
-            writeSnapshot(gson.toJson(snapshot));
+            writeSnapshot(gson.toJson(lastSnapshot));
         } catch (IOException e) {
             e.printStackTrace();
         }
+        
+        // Once a server completes writing a snapshot, it may delete all log entries up through the last included 
+        // index, as well as any prior snapshot.
+        clearUpToIndex(commitIndex);
     }
 
     /**
@@ -142,5 +170,12 @@ public class Logger {
      */
     private void writeSnapshot(String toWrite) throws IOException {
         Files.write(storage, toWrite.getBytes());
+    }
+    
+    private void clearUpToIndex(Integer lastIncludedIndex) {
+        synchronized (entriesSync) {
+            entries = entries.tailMap(lastIncludedIndex);
+            entries.remove(lastIncludedIndex);
+        }
     }
 }

@@ -31,7 +31,7 @@ public class KeepAliveManager {
     }
 
     /**
-     * Starts or resets a keepalive
+     * Starts or resets a keepalive with daemon threads
      * @param serverId The name of the server to keep alive
      * @param serverInterface The remote server's interface
      */
@@ -44,8 +44,9 @@ public class KeepAliveManager {
             thread.interrupt();
             System.out.println(Thread.currentThread().getId() + ": thread " + thread.getId() + " stopped, starting new one");
         }
-
+        
         thread = new Thread(() -> keepAlive(serverId, serverInterface));
+        thread.setDaemon(true);
 
         threads.put(serverId, thread);
         thread.start();
