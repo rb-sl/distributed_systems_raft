@@ -6,6 +6,8 @@ import java.util.Map;
 
 @Getter
 public class Snapshot {
+    public static final int CHUNK_DIMENSION = 42;
+    
     private Map<String, Integer> variables;
     private Integer lastIncludedIndex;
     private Integer lastIncludedTerm;

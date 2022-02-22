@@ -23,10 +23,7 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.lang.reflect.Type;
 import java.net.InetAddress;
-import java.nio.file.Files;
-import java.nio.file.NoSuchFileException;
-import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.nio.file.*;
 import java.rmi.AlreadyBoundException;
 import java.rmi.NotBoundException;
 import java.rmi.RemoteException;
@@ -501,21 +498,20 @@ public class Server implements RemoteServerInterface {
         }
         
         // 2. Create new snapshot file if first chunk (offset is 0)
-        Snapshot snapshot;
-        Path snapshotPath = this.serverState.getLogger().getStorage();
-        RandomAccessFile snapshotFile = null;
+        Path snapshotPath = Paths.get(this.serverState.getLogger().getStorage() + "_" + message.getLastIncludedIndex() + ".temp");
+        RandomAccessFile snapshotTempFile = null;
         if(message.getOffset() == 0) {
             try {
-                snapshotFile = new RandomAccessFile(Files.createFile(snapshotPath).toFile(), "rw");
+                Files.deleteIfExists(snapshotPath);
+                snapshotTempFile = new RandomAccessFile(Files.createFile(snapshotPath).toFile(), "rw");
             } catch (IOException e) {
                 e.printStackTrace();
                 return new Result(message.getInternalRequestNumber(), this.serverState.getCurrentTerm(), false);
             }
-            snapshot = new Snapshot(new HashMap<>(), message.getLastIncludedIndex(), message.getLastIncludedTerm());
         }
         else {
             try {
-                snapshotFile = new RandomAccessFile(snapshotPath.toString(), "rw");
+                snapshotTempFile = new RandomAccessFile(snapshotPath.toString(), "rw");
             } catch (FileNotFoundException e) {
                 e.printStackTrace();
                 return new Result(message.getInternalRequestNumber(), this.serverState.getCurrentTerm(), false);
@@ -525,14 +521,16 @@ public class Server implements RemoteServerInterface {
         // 3. Write data into snapshot file at given offset
         try {
             // If the file is not long enough it is extended
-            if(snapshotFile.length() < message.getOffset()) {
-                snapshotFile.setLength(message.getOffset());
-            }
-            snapshotFile.seek(message.getOffset());
-            snapshotFile.write(message.getData());
+//            if(snapshotTempFile.length() < message.getOffset()) {
+//                snapshotTempFile.setLength(message.getOffset());
+//            }
+            snapshotTempFile.seek((long) message.getOffset() * Snapshot.CHUNK_DIMENSION);
+            snapshotTempFile.write(message.getData());
+            snapshotTempFile.close();
         } catch (IOException e) {
             e.printStackTrace();
         }
+        
 
         // 4. Reply and wait for more data chunks if done is false
         if(!message.isDone()) {
@@ -540,13 +538,35 @@ public class Server implements RemoteServerInterface {
         }
         
         // 5. Save snapshot file, discard any existing or partial snapshot with a smaller index
+        try {
+            Files.deleteIfExists(this.serverState.getLogger().getStorage());
+            Files.copy(snapshotPath, this.serverState.getLogger().getStorage());
+            Files.deleteIfExists(snapshotPath);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }        
         
         // 6. If existing log entry has same index and term as snapshot’s last included entry, retain log entries following it and reply
+        try {
+            LogEntry lastSnapshotEntry = this.getServerState().getLogger().getEntry(message.getLastIncludedIndex());
+            if (lastSnapshotEntry != null && lastSnapshotEntry.getTerm() == message.getTerm()) {
+                this.getServerState().getLogger().clearUpToIndex(message.getLastIncludedIndex(), false);
+                return new Result(message.getInternalRequestNumber(), this.serverState.getCurrentTerm(), true);
+            }
+        } catch(NoSuchElementException e) {
+            // The last element did not exist, so continue
+        } catch(Exception e) {
+            e.printStackTrace();
+        }
         
         // 7. Discard the entire log
+        this.getServerState().getLogger().clearEntries();
         
         // 8. Reset state machine using snapshot contents (and load snapshot’s cluster configuration)
-
+        this.getServerState().restoreVars();
+        
+        System.out.println("InstallSnapshot: updated variables = " + getServerState().getVariables());
+        
         return new Result(message.getInternalRequestNumber(), this.serverState.getCurrentTerm(), true);
     }
 
@@ -579,7 +599,6 @@ public class Server implements RemoteServerInterface {
     public Integer write(String clientId, Integer clientRequestNumber, String variable, Integer value) throws RemoteException, NotLeaderException {
         return clientManager.write(clientId, clientRequestNumber, variable, value);
     }
-
 
     /**
      * Updates the server state

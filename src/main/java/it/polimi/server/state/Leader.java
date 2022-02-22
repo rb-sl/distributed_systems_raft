@@ -1,11 +1,13 @@
 package it.polimi.server.state;
 
+import it.polimi.exceptions.IndexAlreadyDiscardedException;
 import it.polimi.networking.RemoteServerInterface;
 import it.polimi.networking.messages.Message;
 import it.polimi.networking.messages.Result;
 import it.polimi.networking.messages.UpdateIndex;
 import it.polimi.server.Server;
 import it.polimi.server.log.Logger;
+import it.polimi.server.log.Snapshot;
 
 import java.rmi.RemoteException;
 import java.util.*;
@@ -15,7 +17,8 @@ public class Leader extends State {
     /**
      * For each server, index of the next log entry to send to that server (initialized to leader last log index + 1)
      */
-    private static final Map<String, Integer> nextIndex = new HashMap<>() ;
+    private static final Map<String, Integer> nextIndex = new HashMap<>();
+    private static final Object nextIndexSync = new Object();
 
     /**
      * For each server, index of highest log entry known to be replicated on server
@@ -109,7 +112,7 @@ public class Leader extends State {
                     e.printStackTrace();
                 }
             }
-            System.out.println("Confirmed " + readConfirmed.values().stream().filter(x -> x).count()+"/"+readConfirmed.size());
+            System.out.println("Confirmed " + (readConfirmed.values().stream().filter(x -> x).count() + 1) + "/" + (readConfirmed.size() + 1));
         }        
     }
 
@@ -137,7 +140,7 @@ public class Leader extends State {
     private void replicate(String serverId, RemoteServerInterface serverInterface) {
         while(!Thread.currentThread().isInterrupted()) {
             Integer next;
-            synchronized (nextIndex) {
+            synchronized (nextIndexSync) {
                 next = nextIndex.get(serverId);
                 if(next == null) {
                     next = 0;
@@ -148,7 +151,12 @@ public class Leader extends State {
             // If last log index ≥ nextIndex for a follower:
             if (lastLogIndex != null && lastLogIndex >= next) {
                 // send AppendEntries RPC with log entries starting at nextIndex
-                Integer prevLogIndex = logger.getIndexBefore(next);
+                Integer prevLogIndex = null;
+                try {
+                    prevLogIndex = logger.getIndexBefore(next);
+                } catch (IndexAlreadyDiscardedException e) {
+                    sendSnapshot(serverId, lastLogIndex, serverInterface);
+                }
                 Integer commit;
                 synchronized (commitIndexSync) {
                     commit = commitIndex;
@@ -156,54 +164,27 @@ public class Leader extends State {
                 int receipt;
                 try {
                     synchronized (receiptSync) {
-                        receipt = serverInterface.appendEntries(this.server, currentTerm, this.server.getId(),
-                                prevLogIndex, logger.termAtPosition(prevLogIndex), logger.getEntriesSince(next), commit);
-
-                        pendingRequests.add(receipt);
+                        try {
+                            receipt = serverInterface.appendEntries(this.server, currentTerm, this.server.getId(),
+                                    prevLogIndex, logger.termAtPosition(prevLogIndex), logger.getEntriesSince(next), commit);
+                            pendingRequests.add(receipt);
+                            this.server.addRequest(receipt, Message.Type.AppendEntry);
+                            waitForResult(serverId, lastLogIndex, receipt);
+                        } catch (IndexAlreadyDiscardedException e) {
+                            sendSnapshot(serverId, lastLogIndex, serverInterface);
+                        }                        
                     }
-                    this.server.addRequest(receipt, Message.Type.AppendEntry);
                 } catch (RemoteException e) {
                     // Retries indefinitely
                     continue;
-                }
-
-                Result result;
-                synchronized (receiptSync) {
-                    while (!receiptResults.containsKey(receipt)) {
-                        try {
-                            receiptSync.wait();
-                        } catch (InterruptedException e) {
-                            System.err.println("Replication thread " + Thread.currentThread().getId() + " interrupted");
-                            return;
-                        }
-                    }
-                    result = receiptResults.remove(receipt);
-                }
-
-                if(result.isSuccess()) {
-                    // If successful: update nextIndex and matchIndex for follower (§5.3)
-                    synchronized (nextIndex) {
-                        nextIndex.put(serverId, lastLogIndex + 1);
-                    }
-                    synchronized (commitIndexSync) {
-                        matchIndex.put(serverId, lastLogIndex);
-                    }
-                    System.out.println(Thread.currentThread().getId() + "Replication " + serverId + " ok, new next: " + nextIndex.get(serverId));
-                    checkCommitIndex();
-                }
-                else {
-                    // If AppendEntries fails because of log inconsistency:
-                    // decrement nextIndex and retry (§5.3)
-                    nextIndex.put(serverId, nextIndex.get(serverId) - 1);
-                    System.err.println("Replication " + serverId + " no");
-                }
+                }       
             }
             else {
                 try {
-                    synchronized (nextIndex) {
+                    synchronized (nextIndexSync) {
                         // When no new client requests need to be replicated the thread waits
                         System.err.println("No new requests");
-                        nextIndex.wait();
+                        nextIndexSync.wait();
                     }
                 } catch (InterruptedException e) {
                     return;
@@ -211,7 +192,85 @@ public class Leader extends State {
             }
         }
     }
+    
+    private void waitForResult(String serverId, Integer lastLogIndex, Integer receipt) {
+        Result result;
+        synchronized (receiptSync) {
+            while (!receiptResults.containsKey(receipt)) {
+                try {
+                    receiptSync.wait();
+                } catch (InterruptedException e) {
+                    System.err.println("Replication thread " + Thread.currentThread().getId() + " interrupted");
+                    return;
+                }
+            }
+            result = receiptResults.remove(receipt);
+        }
 
+        if(result.isSuccess()) {
+            // If successful: update nextIndex and matchIndex for follower (§5.3)
+            synchronized (nextIndexSync) {
+                nextIndex.put(serverId, lastLogIndex + 1);
+            }
+            synchronized (commitIndexSync) {
+                matchIndex.put(serverId, lastLogIndex);
+            }
+            System.out.println(Thread.currentThread().getId() + ": Replication " + serverId + " ok, new next = " + nextIndex.get(serverId));
+            checkCommitIndex();
+        }
+        else {
+            // If AppendEntries fails because of log inconsistency:
+            // decrement nextIndex and retry (§5.3)
+            synchronized (nextIndexSync) {
+                nextIndex.put(serverId, nextIndex.get(serverId) - 1);
+            }
+            System.err.println("Replication " + serverId + " failed");
+        }
+    }
+    
+    private void sendSnapshot(String serverId, Integer lastLogIndex, RemoteServerInterface serverInterface) {
+        // [...] the leader must occasionally send snapshots to followers that lag behind. 
+        // This happens when the leader has already discarded the next log entry that it needs to
+        // send to a follower.
+        System.out.println(Thread.currentThread().getId() + ": Sending snapshot to " + serverId);
+
+        Snapshot snapshot = new Snapshot(this.getVariables(), this.getLastLogIndex(),
+                this.logger.termAtPosition(this.logger.getLastIndex()));
+        byte[] data = gson.toJson(snapshot).getBytes();
+
+        int receipt;
+        int iterations = (int) Math.ceil((float) data.length / Snapshot.CHUNK_DIMENSION);
+        for (int i = 0; i < iterations; i++) {
+            byte[] dataChunk = new byte[Snapshot.CHUNK_DIMENSION];
+
+            try {
+                System.arraycopy(data, i * Snapshot.CHUNK_DIMENSION, dataChunk, 0, Snapshot.CHUNK_DIMENSION);
+            } catch (ArrayIndexOutOfBoundsException ex) {
+                dataChunk = new byte[data.length - i * Snapshot.CHUNK_DIMENSION];
+                System.arraycopy(data, i * Snapshot.CHUNK_DIMENSION, dataChunk, 0, data.length - i * Snapshot.CHUNK_DIMENSION);
+            }
+
+            boolean done = false;
+            do {
+                try {
+                    receipt = serverInterface.installSnapshot(this.server, currentTerm, this.server.getId(),
+                            snapshot.getLastIncludedIndex(), snapshot.getLastIncludedTerm(),
+                            i, dataChunk, i == iterations - 1);
+                    pendingRequests.add(receipt);
+
+                    // Waits for the result to update the nextIndex only on the last part of InstallSnapshot
+                    if (i == iterations - 1) {
+                        this.server.addRequest(receipt, Message.Type.InstallSnapshot);
+                        waitForResult(serverId, lastLogIndex, receipt);
+                    }
+                    done = true;
+                } catch (RemoteException e) {
+                    continue;
+                }
+            } while (!done);
+        }
+    }
+    
     /**
      * If commitIndex update rules are met a message is enqueued on the leader to update the index
      */
@@ -234,7 +293,7 @@ public class Leader extends State {
             // If there exists an N such that N > commitIndex,
             if (minIndexGTCommit != null
                     // a majority of matchIndex[i] ≥ N,
-                    && minCount > matchIndex.values().size() / 2
+                    && minCount + 1 > (matchIndex.values().size() + 1) / 2 // Accounts for leader
                     // and log[N].term == currentTerm:
                     && (logger.getEntry(minIndexGTCommit) != null && logger.getEntry(minIndexGTCommit).getTerm() == currentTerm)) {
                 // set commitIndex = N (§5.3, §5.4).
@@ -265,8 +324,8 @@ public class Leader extends State {
 //        synchronized (commitIndexSync) {
 //            matchIndex.put(server.getId(), getLastLogIndex());
 //        }
-        synchronized (nextIndex) {
-            nextIndex.notifyAll();
+        synchronized (nextIndexSync) {
+            nextIndexSync.notifyAll();
         }
     }
 }

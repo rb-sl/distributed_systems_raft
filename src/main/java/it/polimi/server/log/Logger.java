@@ -1,6 +1,7 @@
 package it.polimi.server.log;
 
 import com.google.gson.Gson;
+import it.polimi.exceptions.IndexAlreadyDiscardedException;
 import it.polimi.server.Server;
 import lombok.Getter;
 
@@ -16,9 +17,19 @@ public class Logger {
      * The map is ordered on the log index
      */
     private SortedMap<Integer, LogEntry> entries;
-    private static Integer nextKey;
+    /**
+     * Synchronization object for entries
+     */
     private static final Object entriesSync = new Object();
     
+    /**
+     * Next index to insert 
+     */
+    private static Integer nextKey;
+
+    /**
+     * The server hosting the logger
+     */
     private final Server server;
 
     /**
@@ -26,8 +37,11 @@ public class Logger {
      */
     @Getter
     protected final Path storage;
-    
-    private static Snapshot lastSnapshot;
+
+    /**
+     * Last taken snapshot
+     */
+    private static Snapshot lastSnapshot = null;
 
     /**
      * Gson object
@@ -51,7 +65,7 @@ public class Logger {
             if (position == null) {
                 return null;
             }
-            if(entries.isEmpty() || !entries.containsKey(position)) {  
+            if(entries.isEmpty() || !entries.containsKey(position)) {
                 if(lastSnapshot != null && lastSnapshot.getLastIncludedIndex().equals(position)) {
                     return lastSnapshot.getLastIncludedTerm();
                 }
@@ -100,7 +114,7 @@ public class Logger {
     public void printLog() {
         System.out.println("---Log---------------");
         for(Map.Entry<Integer, LogEntry> entry : entries.entrySet()) {
-            System.out.println("" + entry.getKey() + ": [Term " + entry.getValue().getTerm() + "] " + entry.getValue().getVarName() + " ← " + entry.getValue().getValue());
+            System.out.println(entry.getKey() + ": [Term " + entry.getValue().getTerm() + "] " + entry.getValue().getVarName() + " ← " + entry.getValue().getValue());
         }
         System.out.println("---------------------");
     }
@@ -109,9 +123,14 @@ public class Logger {
      * @see it.polimi.server.state.State#getLastLogIndex() getLastLogIndex
      * @throws NoSuchElementException
      */
-    public int getLastIndex() throws NoSuchElementException{
+    public Integer getLastIndex() throws NoSuchElementException {
         synchronized (entriesSync) {
-            return entries.lastKey();
+            try {
+                return entries.lastKey();
+            }
+            catch(NoSuchElementException e) {
+                return null;
+            }
         }
     }
 
@@ -119,12 +138,21 @@ public class Logger {
         return index == null ? null : entries.get(index);
     }
 
-    public Integer getIndexBefore(Integer index) {
+    /**
+     * Returns the greater index lower than the given index
+     * @param index The given index
+     * @return The last index before the given one
+     * @throws IndexAlreadyDiscardedException When the map does not contain the given index
+     */
+    public Integer getIndexBefore(Integer index) throws IndexAlreadyDiscardedException {
         if(index == null) {
             return null;
         }
         try {
             synchronized (entriesSync) {
+                if(!entries.containsKey(index)) {
+                    throw new IndexAlreadyDiscardedException("Index Before not available", index);
+                }
                 return entries.headMap(index).lastKey();
             }
         } catch (NoSuchElementException e) {
@@ -132,15 +160,32 @@ public class Logger {
         }
     }
 
-    public SortedMap<Integer, LogEntry> getEntriesSince(Integer next) {
+    /**
+     * Get entries with key greater or equal than a given one
+     * @param next The given key
+     * @return The following entries
+     * @throws IndexAlreadyDiscardedException When the given key is not present in the map
+     */
+    public SortedMap<Integer, LogEntry> getEntriesSince(Integer next) throws IndexAlreadyDiscardedException {
         if(next == null) {
             return null;
         }
         synchronized (entriesSync) {
+            if(!entries.containsKey(next)) {
+                throw new IndexAlreadyDiscardedException("Index not available", next);
+            }
             return entries.tailMap(next);
         }
     }
 
+    /**
+     * Add an entry to the entries map
+     * @param term The entry's term
+     * @param variable The variable's name
+     * @param value The variable's value
+     * @param requestNumber The request number
+     * @param clientRequestNumber The client request number
+     */
     public void addEntry(int term, String variable, Integer value, Integer requestNumber, Integer clientRequestNumber) {
         synchronized (entriesSync) {
             entries.put(nextKey, new LogEntry(term, variable, value, requestNumber, clientRequestNumber, nextKey));
@@ -148,7 +193,10 @@ public class Logger {
             printLog();
         }
     }
-    
+
+    /**
+     * Creates and writes a snapshot of entries, that are then deleted
+     */
     public void takeSnapshot() {
         Integer commitIndex = this.server.getServerState().getCommitIndex();
         lastSnapshot = new Snapshot(this.server.getServerState().getVariables(), commitIndex, termAtPosition(commitIndex));
@@ -160,22 +208,48 @@ public class Logger {
         
         // Once a server completes writing a snapshot, it may delete all log entries up through the last included 
         // index, as well as any prior snapshot.
-        clearUpToIndex(commitIndex);
+        clearUpToIndex(commitIndex, true);
     }
 
     /**
-     * Write the last commit on file
+     * Writes the last commit on file
      * @param toWrite What to write
      * @throws IOException When there's an error in input output functions
      */
     private void writeSnapshot(String toWrite) throws IOException {
         Files.write(storage, toWrite.getBytes());
     }
-    
-    private void clearUpToIndex(Integer lastIncludedIndex) {
+
+    /**
+     * Removes all entries up to an index (can be included or excluded)
+     * @param lastIncludedIndex Index up to which remove entries
+     * @param removeLast Controls whether to remove also the provided index entry
+     */
+    public void clearUpToIndex(Integer lastIncludedIndex, boolean removeLast) {
         synchronized (entriesSync) {
             entries = entries.tailMap(lastIncludedIndex);
-            entries.remove(lastIncludedIndex);
+            if(removeLast) {
+                entries.remove(lastIncludedIndex);
+            }
+        }
+    }
+
+    /**
+     * Synchronized getter for the entries list
+     * @return The entries
+     */
+    public SortedMap<Integer, LogEntry> getEntries() {
+        synchronized(entriesSync) {
+            return entries;
+        }
+    }
+
+    /**
+     * Removes all entries from the log
+     */
+    public void clearEntries() {
+        synchronized (entriesSync) {
+            entries.clear();
         }
     }
 }

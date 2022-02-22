@@ -11,6 +11,7 @@ import it.polimi.networking.messages.StateTransition;
 import it.polimi.server.Server;
 import it.polimi.server.log.LogEntry;
 import it.polimi.server.log.Logger;
+import it.polimi.server.log.Snapshot;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -80,11 +81,6 @@ public abstract class State {
     private static final Object variableSync = new Object();
     
     /**
-     * Persistent storage for variables
-     */
-    protected final Path storage;
-
-    /**
      * Gson object
      */
     protected final Gson gson = new Gson();
@@ -127,8 +123,6 @@ public abstract class State {
         commitIndex = localCommitIndex;
         this.lastApplied = lastApplied;
 
-        this.storage = Paths.get("./configuration/" + server.getId() + "_storage.json");
-
         restoreVars();
         elapsedMinTimeout = false;
     }
@@ -136,29 +130,31 @@ public abstract class State {
     /**
      * Restores the variables map after a restart
      */
-    private void restoreVars() {
-        try {
+    public void restoreVars() {
+        Path storage = this.logger.getStorage();
+        try {            
             if(!Files.exists(storage)) {
                 Files.createFile(storage);
                 // Initializes the file as an empty json
-                try {
-                    Files.writeString(storage, "{}");
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
+//                try {
+//                    Files.writeString(storage, "{}");
+//                } catch (IOException e) {
+//                    e.printStackTrace();
+//                }
             }
         } catch (IOException ioException) {
             ioException.printStackTrace();
         }
 
         try {
-            Type type = new TypeToken<Map<String, Integer>>() {}.getType();
-            synchronized (variableSync) {
-                this.variables = gson.fromJson(Files.readString(storage), type);
+            Type type = new TypeToken<Snapshot>() {}.getType();
+            Snapshot snapshot = gson.fromJson(Files.readString(storage), type);
+            synchronized (variableSync) {                
+                this.variables = snapshot.getVariables();
             }
-        } catch(NullPointerException | JsonIOException | IOException e) {
+        } catch(JsonSyntaxException | NullPointerException | JsonIOException | IOException e) {
             e.printStackTrace();
-        } catch (JsonSyntaxException e) {
+//        } catch ( e) {
             // With a corrupted file variables are reinitialized
             synchronized (variableSync) {
                 this.variables = new HashMap<>();
@@ -208,11 +204,13 @@ public abstract class State {
             if (localCommitIndex > last) {
                 for (int i = last + 1; i <= localCommitIndex; i++) {
                     try {
-                        LogEntry entry = this.logger.getEntry(i); // todo why null?
+                        LogEntry entry = this.logger.getEntry(i);
                         applyToStateMachine(entry);
 
-                        // Returns response to client
-                        this.server.getClientManager().clientRequestComplete(entry.getInternalRequestNumber(), entry.getClientRequestNumber(),  1);
+                        // Returns response to client, if it is a leader
+                        if(entry != null && this.role == Role.Leader) {
+                            this.server.getClientManager().clientRequestComplete(entry.getInternalRequestNumber(), entry.getClientRequestNumber(), 1);
+                        }
                     } catch (NoSuchElementException e) {
                         // Should not happen as committed entries should be known to the server
                         e.printStackTrace();
@@ -244,7 +242,7 @@ public abstract class State {
         synchronized (variableSync) {
             this.variables.put(key, val);
         }
-        logger.takeSnapshot();
+        logger.takeSnapshot(); // todo bring into async
     }
     
     public Map<String, Integer> getVariables() {
@@ -347,7 +345,6 @@ public abstract class State {
                 "',\n        'commitIndex':'" + commitIndex +
                 "',\n        'lastApplied':'" + lastApplied +
                 "',\n        'variables':'" + variables +
-                "',\n        'storage':'" + storage +
                 "'\n    }";
     }
 }
