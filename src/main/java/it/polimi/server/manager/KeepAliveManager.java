@@ -42,7 +42,7 @@ public class KeepAliveManager {
         thread = threads.get(serverId);
         if(thread != null && thread.isAlive()) {
             thread.interrupt();
-            System.out.println(Thread.currentThread().getId() + ": thread " + thread.getId() + " stopped, starting new one");
+            System.out.println(Thread.currentThread().getId() + " [KeepAlive] Thread " + thread.getId() + " stopped, starting new one for " + serverId);
         }
         
         thread = new Thread(() -> keepAlive(serverId, serverInterface));

@@ -29,7 +29,6 @@ public class Leader extends State {
     private static Map<String, Thread> replicationThreads;
 
     private final static List<Integer> pendingRequests = new ArrayList<>();
-
     private static final Map<Integer, Result> receiptResults = new HashMap<>();
     private static final Object receiptSync = new Object();
     
@@ -128,7 +127,7 @@ public class Leader extends State {
         thread = replicationThreads.get(serverId);
         if(thread != null && thread.isAlive()) {
             thread.interrupt();
-            System.out.println(Thread.currentThread().getId() + ": thread " + thread.getId() + " stopped, starting new one");
+            System.out.println(Thread.currentThread().getId() + " [Replication] Thread " + thread.getId() + " stopped, starting new one for " + serverId);
         }
 
         thread = new Thread(() -> replicate(serverId, serverInterface));
@@ -163,16 +162,16 @@ public class Leader extends State {
                 }
                 int receipt;
                 try {
-                    synchronized (receiptSync) {
-                        try {
-                            receipt = serverInterface.appendEntries(this.server, currentTerm, this.server.getId(),
-                                    prevLogIndex, logger.termAtPosition(prevLogIndex), logger.getEntriesSince(next), commit);
+                    try {
+                        receipt = serverInterface.appendEntries(this.server, currentTerm, this.server.getId(),
+                                prevLogIndex, logger.termAtPosition(prevLogIndex), logger.getEntriesSince(next), commit);
+                        synchronized (receiptSync) {
                             pendingRequests.add(receipt);
-                            this.server.addRequest(receipt, Message.Type.AppendEntry);
-                            waitForResult(serverId, lastLogIndex, receipt);
-                        } catch (IndexAlreadyDiscardedException e) {
-                            sendSnapshot(serverId, lastLogIndex, serverInterface);
-                        }                        
+                        }
+                        this.server.addRequest(receipt, Message.Type.AppendEntry);
+                        waitForResult(serverId, lastLogIndex, receipt);
+                    } catch (IndexAlreadyDiscardedException e) {
+                        sendSnapshot(serverId, lastLogIndex, serverInterface);
                     }
                 } catch (RemoteException e) {
                     // Retries indefinitely
@@ -256,8 +255,9 @@ public class Leader extends State {
                     receipt = serverInterface.installSnapshot(this.server, currentTerm, this.server.getId(),
                             snapshot.getLastIncludedIndex(), snapshot.getLastIncludedTerm(),
                             i, dataChunk, i == iterations - 1);
-                    pendingRequests.add(receipt);
-
+                    synchronized (receiptSync) {
+                        pendingRequests.add(receipt);
+                    }
                     // Waits for the result to update the nextIndex only on the last part of InstallSnapshot
                     if (i == iterations - 1) {
                         this.server.addRequest(receipt, Message.Type.InstallSnapshot);
@@ -311,7 +311,7 @@ public class Leader extends State {
 
         Integer requestNumber = result.getInternalRequestNumber();
         synchronized (receiptSync) {
-            if (type == Message.Type.AppendEntry && pendingRequests.contains(requestNumber)) {
+            if ((type == Message.Type.AppendEntry || type == Message.Type.InstallSnapshot) && pendingRequests.contains(requestNumber)) {
                 // Wakes up threads waiting for follower's answers
                 pendingRequests.remove(requestNumber);
                 receiptResults.put(requestNumber, result);

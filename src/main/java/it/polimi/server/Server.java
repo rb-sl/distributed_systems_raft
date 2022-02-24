@@ -36,6 +36,11 @@ import java.util.concurrent.LinkedBlockingQueue;
 
 public class Server implements RemoteServerInterface {
     /**
+     * Configuration for the server
+     */
+    private ServerConfiguration serverConfiguration;
+    
+    /**
      * Server state
      */
     @Getter
@@ -105,28 +110,27 @@ public class Server implements RemoteServerInterface {
     public Server(String serverName) {
         this.cluster = new HashMap<>();
         outgoingRequests = new HashMap<>();
-               
+
         clientManager = new ClientManager(this);
 
         this.id = serverName;
-
-        ServerConfiguration serverConfiguration;
+        
         try {
             Path storage = Paths.get("./configuration/" + serverName + ".json");
-            Type type = new TypeToken<ServerConfiguration>(){}.getType();
-            serverConfiguration = gson.fromJson(Files.readString(storage), type);
+            Type type = new TypeToken<ServerConfiguration>() {}.getType();
+            this.serverConfiguration = gson.fromJson(Files.readString(storage), type);
         } catch (NoSuchFileException e) {
             System.err.println("Cannot find configuration for server '" + serverName + "'. Terminating.");
             return;
-        } catch(IOException e) {
+        } catch (IOException e) {
             e.printStackTrace();
             return;
         }
 
         try {
             // Builds the server interface on the given port (or on a random one if null)
-            Integer port = serverConfiguration.getPort();
-            if(port == null) {
+            Integer port = this.serverConfiguration.getPort();
+            if (port == null) {
                 port = 0;
             }
             this.selfInterface = (RemoteServerInterface) UnicastRemoteObject.exportObject(this, port);
@@ -139,8 +143,8 @@ public class Server implements RemoteServerInterface {
             } catch (RemoteException e) {
 //                e.printStackTrace();
                 System.err.println("Creating local RMI registry");
-                Integer localPort = serverConfiguration.getRegistryPort();
-                if(localPort == null) {
+                Integer localPort = this.serverConfiguration.getRegistryPort();
+                if (localPort == null) {
                     localPort = 1099;
                 }
                 localRegistry = LocateRegistry.createRegistry(localPort);
@@ -148,7 +152,7 @@ public class Server implements RemoteServerInterface {
             }
 
             Registry registry;
-            for(ServerConfiguration other: serverConfiguration.getCluster()) {
+            for (ServerConfiguration other : this.serverConfiguration.getCluster()) {
                 InetAddress otherRegistryIP = other.getRegistryIP();
                 Integer otherRegistryPort = other.getRegistryPort();
 
@@ -167,15 +171,16 @@ public class Server implements RemoteServerInterface {
                     System.err.println("Server '" + other.getName() + "' at " + otherRegistryIP + ":" + otherRegistryPort + " not available");
                 }
             }
-
-            System.err.println("Server '" + serverName + "' ready");
-
-            this.serverState = new Follower(this, serverConfiguration.getVariables());
         } catch (Exception e) {
-            System.err.println("Server exception: " + e.toString());
+            System.err.println("Server exception: " + e);
             e.printStackTrace();
         }
-
+    }
+    
+    protected void start() {
+        this.serverState = new Follower(this, this.serverConfiguration.getVariables());
+        System.err.println("Server '" + this.id + "' ready");
+        
         // Start processing messages in the queue
         Message message;
         Result result;
@@ -258,6 +263,7 @@ public class Server implements RemoteServerInterface {
 
                 // Replies to other servers
                 if (message.getMessageType() == Message.Type.AppendEntry
+                        || message.getMessageType() == Message.Type.InstallSnapshot
                         || message.getMessageType() == Message.Type.RequestVote) {
                     message.getOrigin().reply(result);
                 }
@@ -530,7 +536,6 @@ public class Server implements RemoteServerInterface {
         } catch (IOException e) {
             e.printStackTrace();
         }
-        
 
         // 4. Reply and wait for more data chunks if done is false
         if(!message.isDone()) {
@@ -549,7 +554,7 @@ public class Server implements RemoteServerInterface {
         // 6. If existing log entry has same index and term as snapshot’s last included entry, retain log entries following it and reply
         try {
             LogEntry lastSnapshotEntry = this.getServerState().getLogger().getEntry(message.getLastIncludedIndex());
-            if (lastSnapshotEntry != null && lastSnapshotEntry.getTerm() == message.getTerm()) {
+            if (lastSnapshotEntry != null && lastSnapshotEntry.getTerm() == message.getLastIncludedTerm()) {
                 this.getServerState().getLogger().clearUpToIndex(message.getLastIncludedIndex(), false);
                 return new Result(message.getInternalRequestNumber(), this.serverState.getCurrentTerm(), true);
             }
@@ -565,11 +570,10 @@ public class Server implements RemoteServerInterface {
         // 8. Reset state machine using snapshot contents (and load snapshot’s cluster configuration)
         this.getServerState().restoreVars();
         
-        System.out.println("InstallSnapshot: updated variables = " + getServerState().getVariables());
+        System.out.println("InstallSnapshot complete: updated variables = " + getServerState().getVariables());
         
         return new Result(message.getInternalRequestNumber(), this.serverState.getCurrentTerm(), true);
     }
-
 
     @Override
     public void reply(Result result) throws RemoteException {
@@ -623,7 +627,7 @@ public class Server implements RemoteServerInterface {
     @Override
     public String toString() {
         return "{\n" +
-                "   'serverState':" + serverState.toString() +
+                "'serverState':" + serverState.toString() +
                 "',\n   'cluster':'" + cluster.toString() +
                 "',\n   'id':'" + id +
                 "'\n}";

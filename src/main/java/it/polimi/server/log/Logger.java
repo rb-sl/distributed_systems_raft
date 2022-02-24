@@ -216,7 +216,7 @@ public class Logger {
      * @param toWrite What to write
      * @throws IOException When there's an error in input output functions
      */
-    private void writeSnapshot(String toWrite) throws IOException {
+    protected void writeSnapshot(String toWrite) throws IOException {
         Files.write(storage, toWrite.getBytes());
     }
 
