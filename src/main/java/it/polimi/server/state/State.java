@@ -153,7 +153,7 @@ public abstract class State {
                 this.variables = snapshot.getVariables();
             }
         } catch(JsonSyntaxException | NullPointerException | JsonIOException | IOException e) {
-            e.printStackTrace();
+//            e.printStackTrace();
 //        } catch ( e) {
             // With a corrupted file variables are reinitialized
             synchronized (variableSync) {

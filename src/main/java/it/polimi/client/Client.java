@@ -4,7 +4,6 @@ import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import it.polimi.exceptions.NotLeaderException;
 import it.polimi.networking.RemoteServerInterface;
-import it.polimi.server.ServerConfiguration;
 
 import java.io.*;
 import java.lang.reflect.Type;
@@ -28,6 +27,7 @@ public class Client implements Remote, Serializable {
     private String id;
     private InetAddress raftRegistryIp;
     private Integer raftRegistryPort;
+    private boolean isAdmin;
     
     private final Gson gson = new Gson();
 
@@ -53,12 +53,14 @@ public class Client implements Remote, Serializable {
             return;
         }
         
-        raftRegistryIp = clientConfiguration.getRaftRegistryIP();
-        raftRegistryPort = clientConfiguration.getRaftRegistryPort();        
+        this.raftRegistryIp = clientConfiguration.getRaftRegistryIP();
+        this.raftRegistryPort = clientConfiguration.getRaftRegistryPort();
+        this.isAdmin = clientConfiguration.getIsAdmin();
 
         // When a client first starts up, it connects to a randomly chosen server
         raft = connectToRandomServer();
         if (raft == null) {
+            System.err.println("Unable to access the Raft cluster");
             return;
         }
 
@@ -71,7 +73,6 @@ public class Client implements Remote, Serializable {
 //        System.out.println("response: " + response);
 //
 //        writeToCluster("x", response + 1);
-        cmd();
     }
 
     private RemoteServerInterface connectToRandomServer() {
@@ -107,7 +108,6 @@ public class Client implements Remote, Serializable {
                 requestComplete = true;
             } catch (RemoteException e) {
                 System.err.println("Connection error, retrying...");
-//                e.printStackTrace();
                 raft = connectToRandomServer();
             } catch (NotLeaderException e) {
                 System.err.println(e + ". Connecting to leader");
@@ -127,7 +127,6 @@ public class Client implements Remote, Serializable {
                 requestComplete = true;
             } catch (RemoteException e) {
                 System.err.println("Connection error, retrying...");
-//                e.printStackTrace();
                 raft = connectToRandomServer();
             } catch (NotLeaderException e) {
                 System.err.println(e.getMessage() + ". Connecting to leader");
@@ -137,8 +136,10 @@ public class Client implements Remote, Serializable {
         return nWritten;
     }
 
-    private void cmd() {
-        while (true) {
+    public void start() {
+        while (true) {            
+            System.out.println("\n\n\nRaft console" + (isAdmin ?  " - Admin mode" : ""));
+            System.out.println("Use 'h' to see available commands");
             BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
             String line;
             try {
@@ -155,6 +156,21 @@ public class Client implements Remote, Serializable {
                 choice = "";
             }
             switch (choice) {
+                case "h" -> {
+                    System.out.println("Available " + (isAdmin ? " client" : "") + " commands:");
+                    System.out.println("\t'r varName': Retrieves the variable's value from the cluster");
+                    System.out.println("\t'w varName value': Writes value to the variable");
+                    if(isAdmin) {
+                        System.out.println("Available admin commands:");
+                        System.out.println("\t's serverName': starts the server with the given name (must exist in configuration)");
+                        System.out.println("\t'f serverName': freezes the server with the given name (must be active)");
+                        System.out.println("\t'k serverName': kills the server with the given name (must be active)");
+                        System.out.println("\t'c fileName': reloads the cluster configuration");
+                        System.out.println("Available misc commands:");
+                    }
+                    System.out.println("\t'h': Opens this menu");
+                    System.out.println("\t'q': Stops the client");
+                }
                 case "r" -> {
                     if (params.length != 2) {
                         System.out.println("Malformed command. Read must be in the form: \"r variable\"");

@@ -17,7 +17,6 @@ import it.polimi.server.state.Leader;
 import it.polimi.server.state.State;
 import lombok.*;
 
-import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.RandomAccessFile;
@@ -85,7 +84,7 @@ public class Server implements RemoteServerInterface {
     /**
      * Object to synchronize requestNumber
      */
-    private static final Object reqNumBlock = new Object();
+    private static final Object reqNumSync = new Object();
 
     @Getter
     private ClientManager clientManager;
@@ -481,7 +480,7 @@ public class Server implements RemoteServerInterface {
     
     public Integer nextRequestNumber() {
         Integer currentRequest;
-        synchronized (reqNumBlock) {
+        synchronized (reqNumSync) {
             currentRequest = internalRequestNumber;
             internalRequestNumber++;
         }
@@ -586,7 +585,7 @@ public class Server implements RemoteServerInterface {
     }
 
     @Override
-    public synchronized void updateCluster(String serverName, RemoteServerInterface serverInterface) {
+    public synchronized void updateCluster(String serverName, RemoteServerInterface serverInterface) { // todo change to object sync
         this.cluster.put(serverName, serverInterface);
         if(this.serverState != null && this.serverState.getRole() == State.Role.Leader) {
             this.keepAliveManager.startKeepAlive(serverName, serverInterface); // todo might not have correct cluster

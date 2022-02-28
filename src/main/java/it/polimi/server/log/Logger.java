@@ -41,7 +41,7 @@ public class Logger {
     /**
      * Last taken snapshot
      */
-    private static Snapshot lastSnapshot = null;
+    protected static Snapshot lastSnapshot = null;
 
     /**
      * Gson object
@@ -49,16 +49,20 @@ public class Logger {
     protected final Gson gson = new Gson();
 
     public Logger(Server server) {
-        this.server = server;
-        this.entries = new TreeMap<>();
-        this.storage = Paths.get("./configuration/" + server.getId() + "_snapshot.json");
-        nextKey = 0;
+        this(server, Paths.get("./configuration/" + server.getId() + "_snapshot.json"));
     }
 
+    protected Logger(Server server, Path storage) {
+        this.server = server;
+        this.entries = new TreeMap<>();
+        this.storage = storage;
+        nextKey = 0;
+    }
+    
     /**
-     * Checks whether or not the log has an entry (on given term) with the given log index
-     * @param position The log index
-     * @return Whether or not the log has an entry (on given term) with the given log index
+     * Gets the term of the entry at a given position
+     * @param position The given position
+     * @return The term
      */
     public Integer termAtPosition(Integer position) {
         synchronized (entriesSync) {
@@ -102,7 +106,7 @@ public class Logger {
     /**
      * Append new entries to the old ones.<\br>
      * Entries with the same location of existing ones are ignored
-     * @param newEntries
+     * @param newEntries The new entries
      */
     public void appendNewEntries(SortedMap<Integer, LogEntry> newEntries) {
         synchronized (entriesSync) {

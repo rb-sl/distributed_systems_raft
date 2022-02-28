@@ -155,6 +155,7 @@ public class Leader extends State {
                     prevLogIndex = logger.getIndexBefore(next);
                 } catch (IndexAlreadyDiscardedException e) {
                     sendSnapshot(serverId, lastLogIndex, serverInterface);
+                    continue;
                 }
                 Integer commit;
                 synchronized (commitIndexSync) {
