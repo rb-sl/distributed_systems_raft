@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import it.polimi.exceptions.NotLeaderException;
 import it.polimi.networking.RemoteServerInterface;
+import it.polimi.utilities.ProcessStarter;
 
 import java.io.*;
 import java.lang.reflect.Type;
@@ -12,6 +13,7 @@ import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.rmi.ConnectException;
 import java.rmi.NotBoundException;
 import java.rmi.Remote;
 import java.rmi.RemoteException;
@@ -19,12 +21,17 @@ import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
 import java.util.concurrent.ThreadLocalRandom;
 
+// TODO: move admin mode on a separate app
 public class Client implements Remote, Serializable {
     private final static String TIMEOUT = "10000"; // 10 seconds
     private RemoteServerInterface raft;
     private Integer requestSerialnumber;
     
-    private String id;
+    private BufferedReader br;
+    
+    private Registry registry;
+    
+    private final String id;
     private InetAddress raftRegistryIp;
     private Integer raftRegistryPort;
     private boolean isAdmin;
@@ -58,6 +65,8 @@ public class Client implements Remote, Serializable {
         this.isAdmin = clientConfiguration.getIsAdmin();
 
         // When a client first starts up, it connects to a randomly chosen server
+        // If the client’s first choice is not the leader, that server will reject the client’s request and supply
+        // information about the most recent leader [done in each method]
         raft = connectToRandomServer();
         if (raft == null) {
             System.err.println("Unable to access the Raft cluster");
@@ -65,18 +74,13 @@ public class Client implements Remote, Serializable {
         }
 
         requestSerialnumber = 0;
-
-        // If the client’s first choice is not the leader, that server will reject the client’s request and supply
-        // information about the most recent leader
-//        Integer response = readFromCluster("x");
-
-//        System.out.println("response: " + response);
-//
-//        writeToCluster("x", response + 1);
     }
 
+    /**
+     * Connects to a server available in the registry
+     * @return The server's interface
+     */
     private RemoteServerInterface connectToRandomServer() {
-        Registry registry;
         String[] availableServers;
         try {
             registry = LocateRegistry.getRegistry(this.raftRegistryIp.getHostAddress(), this.raftRegistryPort);
@@ -98,6 +102,11 @@ public class Client implements Remote, Serializable {
         return raft;
     }
 
+    /**
+     * Reads a variable from the Raft cluster
+     * @param variable The name of the variable
+     * @return The variable's value 
+     */
     private Integer readFromCluster(String variable) {
         Integer result = null;
         boolean requestComplete = false;
@@ -112,11 +121,19 @@ public class Client implements Remote, Serializable {
             } catch (NotLeaderException e) {
                 System.err.println(e + ". Connecting to leader");
                 raft = e.getLeader();
+            } catch (NullPointerException e) {
+                e.printStackTrace();
             }
         }
         return result;
     }
 
+    /**
+     * Writes a variable on the Raft cluster
+     * @param variable The variable to write
+     * @param value The value to write
+     * @return The number of completed operations
+     */
     private Integer writeToCluster(String variable, Integer value) {
         Integer nWritten = null;
         boolean requestComplete = false;
@@ -131,41 +148,55 @@ public class Client implements Remote, Serializable {
             } catch (NotLeaderException e) {
                 System.err.println(e.getMessage() + ". Connecting to leader");
                 raft = e.getLeader();
+            } catch (NullPointerException e) {
+                e.printStackTrace();
             }
         }
         return nWritten;
     }
 
-    public void start() {
-        while (true) {            
-            System.out.println("\n\n\nRaft console" + (isAdmin ?  " - Admin mode" : ""));
-            System.out.println("Use 'h' to see available commands");
-            BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
+    /**
+     * Reads a command from terminal
+     * @return The split command
+     */
+    private String[] readCommand() {
+        try {
             String line;
-            try {
-                line = br.readLine();
-            } catch (IOException e) {
-                e.printStackTrace();
-                continue;
-            }
-            String[] params = line.split(" ");
-            String choice;
+            line = br.readLine();
+            return line.split(" ");
+        } catch (IOException e) {
+            e.printStackTrace();
+            return null;
+        }        
+    }
+
+    /**
+     * Starts the interactive client terminal
+     */
+    public void startCmd() {
+        System.out.println("Raft console" + (isAdmin ?  " - Admin mode" : ""));
+        System.out.println("Use 'h' to see available commands");
+        
+        br = new BufferedReader(new InputStreamReader(System.in));
+        String[] params;
+        String choice;
+        while (true) {
+            params = readCommand();
             try {
                  choice = params[0];
-            } catch(ArrayIndexOutOfBoundsException e) {
+            } catch(ArrayIndexOutOfBoundsException | NullPointerException e) {
                 choice = "";
             }
             switch (choice) {
                 case "h" -> {
                     System.out.println("Available " + (isAdmin ? " client" : "") + " commands:");
-                    System.out.println("\t'r varName': Retrieves the variable's value from the cluster");
-                    System.out.println("\t'w varName value': Writes value to the variable");
+                    System.out.println("\t'r [variable]': Retrieves the variable's value from the cluster");
+                    System.out.println("\t'w [variable] [value]': Writes value to the variable");
                     if(isAdmin) {
                         System.out.println("Available admin commands:");
-                        System.out.println("\t's serverName': starts the server with the given name (must exist in configuration)");
-                        System.out.println("\t'f serverName': freezes the server with the given name (must be active)");
-                        System.out.println("\t'k serverName': kills the server with the given name (must be active)");
-                        System.out.println("\t'c fileName': reloads the cluster configuration");
+                        System.out.println("\t's [serverName]': starts the server with the given name on this machine (must exist in configuration)");
+                        System.out.println("\t'k [serverName]': kills the server with the given name (must be active)");
+                        System.out.println("\t'c': enter cluster management mode");
                         System.out.println("Available misc commands:");
                     }
                     System.out.println("\t'h': Opens this menu");
@@ -173,7 +204,7 @@ public class Client implements Remote, Serializable {
                 }
                 case "r" -> {
                     if (params.length != 2) {
-                        System.out.println("Malformed command. Read must be in the form: \"r variable\"");
+                        System.out.println("Malformed command. Read must be in the form: 'r [variable]'");
                     }
                     else {
                         String var = params[1];
@@ -182,7 +213,7 @@ public class Client implements Remote, Serializable {
                 }
                 case "w" -> {
                     if (params.length != 3) {
-                        System.out.println("Malformed command. Write must be in the form: \"r variable IntValue\"");
+                        System.out.println("Malformed command. Write must be in the form: 'r [variable] [IntValue]'");
                     }
                     else {
                         String var = params[1];
@@ -194,13 +225,81 @@ public class Client implements Remote, Serializable {
                         }
                     }
                 }
+                case "s" -> {
+                    if(!isAdmin) {
+                        System.out.println("Unrecognized command '" + choice + "'");
+                    }
+                    else if (params.length != 2) {
+                        System.out.println("Malformed command. Start must be in the form: 's [serverName]'");
+                    }
+                    else {
+                        try {
+                            ProcessStarter.startServerProcess(params[1], 0, false);
+                        } catch (IOException | InterruptedException e) {
+                            e.printStackTrace();
+                        }
+                    }
+                }
+                case "k" -> {
+                    if(!isAdmin) {
+                        System.out.println("Unrecognized command '" + choice + "'");
+                        continue;
+                    }
+                    try {
+                        RemoteServerInterface toKill = (RemoteServerInterface) registry.lookup(params[1]);
+                        toKill.stop();
+                    } catch (ConnectException ex) {
+                        System.err.println("Cannot connect to " + params[1] + ", server is likely not active");
+                    }
+                    catch (RemoteException | NotBoundException e) {
+                        e.printStackTrace();
+                    }
+                }
+                case "c" -> {
+                    if(!isAdmin) {
+                        System.out.println("Unrecognized command '" + choice + "'");
+                    }
+                    else {
+                        clusterCmd();
+                    }
+                }
                 case "q" -> {
                     return;
                 }
                 default -> {
-                    System.out.println("Malformed command. Command must be in the form: \"type variable [WriteIntValue]\"");
+                    System.out.println("Unrecognized command '" + choice + "'");
                 }
             }
         }
+    }
+
+    /**
+     * Enters the cluster management menu
+     */
+    private void clusterCmd() {
+        System.out.println("Raft - Cluster management mode");
+        
+        String[] params;
+        String choice;
+        while (true) {
+            params = readCommand();
+            try {
+                choice = params[0];
+            } catch(ArrayIndexOutOfBoundsException | NullPointerException e) {
+                choice = "";
+            }
+            switch (choice) {
+                case "h" -> {
+                    System.out.println("Available cluster commands:");
+                    System.out.println("\t'a [serverName]': adds a new configuration for the cluster");
+                    System.out.println("\t'r [serverName]': removes the server configuration for the cluster");                
+                    System.out.println("\t'e [serverName]': exits to main menu");
+                }
+                // todo implement
+                case "e" -> {
+                    return;
+                }
+            }
+        }            
     }
 }

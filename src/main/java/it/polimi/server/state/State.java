@@ -24,20 +24,26 @@ import java.util.*;
 
 public abstract class State {
     /**
-     *The state's role
+     * Possible state role
      */
     public enum Role {
         Leader, Follower, Candidate
     }
 
+    /**
+     * The state's active role
+     */
     @Getter
     protected Role role;
 
     /**
-     * The election timeout
+     * The normal election timeout
      */
     protected static final int ELECTION_TIMEOUT = 350;
 
+    /**
+     * The minimum timeout for elections
+     */
     protected static final int MIN_ELECTION_TIMEOUT = 150;
 
     // Persistent state on all servers (Updated on stable storage before responding to RPCs)
@@ -65,7 +71,9 @@ public abstract class State {
      * Index of the highest log entry known to be committed (initialized to 0, increases monotonically)
      */
     protected static Integer commitIndex;
-
+    /**
+     * Synchronization object for commitIndex
+     */
     protected static final Object commitIndexSync = new Object();
 
     /**
@@ -78,6 +86,9 @@ public abstract class State {
      * Stored variables
      */
     protected Map<String, Integer> variables;
+    /**
+     * Synchronization object for variables
+     */
     private static final Object variableSync = new Object();
     
     /**
@@ -90,9 +101,14 @@ public abstract class State {
      */
     protected Server server;
 
-
+    /**
+     * Timer object for the minimum election time
+     */
     protected Timer minElectionTimer;
 
+    /**
+     * True if the minimum timeout has expired
+     */
     @Getter
     private static Boolean elapsedMinTimeout;
 
@@ -135,12 +151,6 @@ public abstract class State {
         try {            
             if(!Files.exists(storage)) {
                 Files.createFile(storage);
-                // Initializes the file as an empty json
-//                try {
-//                    Files.writeString(storage, "{}");
-//                } catch (IOException e) {
-//                    e.printStackTrace();
-//                }
             }
         } catch (IOException ioException) {
             ioException.printStackTrace();
@@ -153,8 +163,6 @@ public abstract class State {
                 this.variables = snapshot.getVariables();
             }
         } catch(JsonSyntaxException | NullPointerException | JsonIOException | IOException e) {
-//            e.printStackTrace();
-//        } catch ( e) {
             // With a corrupted file variables are reinitialized
             synchronized (variableSync) {
                 this.variables = new HashMap<>();
@@ -229,7 +237,6 @@ public abstract class State {
             return;
         }
 
-//        this.lastApplied = Math.max(entry.getIndex(), this.lastApplied);
         this.lastApplied = entry.getIndex();
         
         String key = entry.getVarName();
@@ -251,6 +258,10 @@ public abstract class State {
         }
     }
 
+    /**
+     * If received term is greater than current term, convert the state to follower and set current term to the received one
+     * @param term The received term
+     */
     public void convertOnNextTerm(Integer term) {
         // If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower (§5.1)
         if(currentTerm == null || term > currentTerm) {
@@ -277,12 +288,24 @@ public abstract class State {
         startMinElectionTimer();
     }
 
+    /**
+     * For leaders that need confirmation of reads
+     * @param serverId The server from which confirmation is needed
+     * @return True if the server still needs to confirm
+     */
     public boolean needsConfirmation(String serverId) {
         return false;
     }
-    
+
+    /**
+     * For leaders that need confirm followers' appends
+     * @param serverId The server that confirmed the append 
+     */
     public void confirmAppend(String serverId) {}
 
+    /**
+     * For leaders that need to wait for follower confirmation
+     */
     public void waitForConfirmation() {}
 
     public Integer getVariable(String varName) {
@@ -305,6 +328,9 @@ public abstract class State {
         receivedMsg(result.getTerm());
     }
 
+    /**
+     * Starts the minimum election timer
+     */
     private void startMinElectionTimer() {
         elapsedMinTimeout = false;
         minElectionTimer = new Timer();
@@ -331,11 +357,19 @@ public abstract class State {
         }
     }
 
+    /**
+     * For leaders to start the replication to a server
+     * @param serverId The target server
+     * @param serverInterface The target's interface
+     */
     public void startReplication(String serverId, RemoteServerInterface serverInterface) {}
 
+    /**
+     * Notifies the addition of a log
+     */
     public void logAdded() {}
 
-        @Override
+    @Override
     public String toString() {
         return "State{\n" +
                 "       'state': '" + this.getClass() +

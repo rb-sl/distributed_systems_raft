@@ -9,8 +9,10 @@ import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.ThreadLocalRandom;
 
+/**
+ * State for followers
+ */
 public class Follower extends State {
-
     /**
      * Election timer
      */
@@ -32,7 +34,7 @@ public class Follower extends State {
      * @param state The previous state
      */
     public Follower(State state) {
-        this(state.server, state.currentTerm, state.votedFor, state.logger, state.commitIndex, state.lastApplied);
+        this(state.server, state.currentTerm, state.votedFor, state.logger, commitIndex, state.lastApplied);
     }
 
     /**

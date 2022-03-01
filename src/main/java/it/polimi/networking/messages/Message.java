@@ -5,14 +5,29 @@ import lombok.Getter;
 
 import java.io.Serializable;
 
+/**
+ * Superclass for messages
+ */
 @Getter
 public abstract class Message implements Serializable {
+    /**
+     * Message types
+     */
     public enum Type {
-        AppendEntry, RequestVote, Result, StateTransition, StartElection, WriteRequest, ReadRequest, UpdateIndex, InstallSnapshot;
+        AppendEntry, RequestVote, Result, StateTransition, StartElection, WriteRequest, ReadRequest, UpdateIndex, InstallSnapshot, Stop;
     }
 
+    /**
+     * The message type
+     */
     protected Type messageType;
+    /**
+     * Server sending the message
+     */
     protected RemoteServerInterface origin;
+    /**
+     * Receipt for the message used in the server
+     */
     protected Integer internalRequestNumber;
 
     @Override

@@ -5,12 +5,27 @@ import lombok.Getter;
 import java.util.Map;
 import java.util.Objects;
 
+/**
+ * Class used to import or export snapshots to json files
+ */
 @Getter
 public class Snapshot {
+    /**
+     * The size of chunks of data sent in snapshots
+     */
     public static final int CHUNK_DIMENSION = 42;
-    
+
+    /**
+     * The variable state
+     */
     private final Map<String, Integer> variables;
+    /**
+     * The snapshot replaces all entries up through and including this index
+     */
     private final Integer lastIncludedIndex;
+    /**
+     * Term of lastIncludedIndex
+     */
     private final Integer lastIncludedTerm;
 
     public Snapshot(Map<String, Integer> variables, Integer lastIncludedIndex, Integer lastIncludedTerm) {

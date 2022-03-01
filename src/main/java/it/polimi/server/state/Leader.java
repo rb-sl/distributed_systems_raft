@@ -12,12 +12,18 @@ import it.polimi.server.log.Snapshot;
 import java.rmi.RemoteException;
 import java.util.*;
 
+/**
+ * State for leaders
+ */
 public class Leader extends State {
     // Volatile state on leaders (Reinitialized after election):
     /**
      * For each server, index of the next log entry to send to that server (initialized to leader last log index + 1)
      */
     private static final Map<String, Integer> nextIndex = new HashMap<>();
+    /**
+     * Synchronization object for nextIndex
+     */
     private static final Object nextIndexSync = new Object();
 
     /**
@@ -26,13 +32,32 @@ public class Leader extends State {
      */
     private static Map<String, Integer> matchIndex;
 
+    /**
+     * Threads handling the replication
+     */
     private static Map<String, Thread> replicationThreads;
 
+    /**
+     * List of requests not yet completed
+     */
     private final static List<Integer> pendingRequests = new ArrayList<>();
-    private static final Map<Integer, Result> receiptResults = new HashMap<>();
-    private static final Object receiptSync = new Object();
     
+    /**
+     * Results associated to each receipt
+     */
+    private static final Map<Integer, Result> receiptResults = new HashMap<>();
+    /**
+     * Synchronization object for receiptResults
+     */
+    private static final Object receiptSync = new Object();
+
+    /**
+     * Describes if followers confirmed the read
+     */
     private static Map<String, Boolean> readConfirmed;
+    /**
+     * Synchronization object for readConfirmed
+     */
     private static final Object readConfirmedSync = new Object();
 
     public Leader(State state) {
@@ -81,7 +106,10 @@ public class Leader extends State {
         getLogger().addEntry(currentTerm, null, null, null, null);
         logAdded();
     }
-    
+
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public boolean needsConfirmation(String serverId) {
         synchronized (readConfirmedSync) {
@@ -89,7 +117,10 @@ public class Leader extends State {
             return result == null || !result;
         }
     }
-    
+
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public void confirmAppend(String serverId) {
         synchronized (readConfirmedSync) {
@@ -97,7 +128,10 @@ public class Leader extends State {
             readConfirmedSync.notifyAll();
         }
     }
-    
+
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public void waitForConfirmation() {
         synchronized (readConfirmedSync) {
@@ -115,12 +149,19 @@ public class Leader extends State {
         }        
     }
 
+    /**
+     * Starts replicating to all cluster
+     * @param cluster The target servers
+     */
     public void startReplication(Map<String, RemoteServerInterface> cluster) {
         for(Map.Entry<String, RemoteServerInterface> entry: cluster.entrySet()) {
                 startReplication(entry.getKey(), entry.getValue());
         }
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public void startReplication(String serverId, RemoteServerInterface serverInterface) {
         Thread thread;
 
@@ -136,6 +177,11 @@ public class Leader extends State {
         thread.start();
     }
 
+    /**
+     * Sends appendEntries and InstallSnapshots to the server
+     * @param serverId The target server
+     * @param serverInterface The target interface
+     */
     private void replicate(String serverId, RemoteServerInterface serverInterface) {
         while(!Thread.currentThread().isInterrupted()) {
             Integer next;
@@ -192,7 +238,13 @@ public class Leader extends State {
             }
         }
     }
-    
+
+    /**
+     * Waits for follower results
+     * @param serverId The target server
+     * @param lastLogIndex The leader's last log index
+     * @param receipt The request's receipt
+     */
     private void waitForResult(String serverId, Integer lastLogIndex, Integer receipt) {
         Result result;
         synchronized (receiptSync) {
@@ -227,7 +279,13 @@ public class Leader extends State {
             System.err.println("Replication " + serverId + " failed");
         }
     }
-    
+
+    /**
+     * Send snapshot capturing until index lastLogIndex to a given server
+     * @param serverId The recipient server id
+     * @param lastLogIndex The last index in the snapshot
+     * @param serverInterface Target server
+     */
     private void sendSnapshot(String serverId, Integer lastLogIndex, RemoteServerInterface serverInterface) {
         // [...] the leader must occasionally send snapshots to followers that lag behind. 
         // This happens when the leader has already discarded the next log entry that it needs to
@@ -273,7 +331,7 @@ public class Leader extends State {
     }
     
     /**
-     * If commitIndex update rules are met a message is enqueued on the leader to update the index
+     * If commitIndex update rules are met, a message is enqueued on the leader to update the index
      */
     public void checkCommitIndex() {
         Integer minIndexGTCommit = null;
@@ -321,6 +379,9 @@ public class Leader extends State {
         }
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public void logAdded() {
 //        synchronized (commitIndexSync) {
 //            matchIndex.put(server.getId(), getLastLogIndex());

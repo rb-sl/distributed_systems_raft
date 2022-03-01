@@ -11,10 +11,12 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
 
+/**
+ * Class to manage logs
+ */
 public class Logger {
     /**
-     * The map of LogEntries in function of log index
-     * The map is ordered on the log index
+     * The map of LogEntries in function of log index, ordered on the log index
      */
     private SortedMap<Integer, LogEntry> entries;
     /**
@@ -115,6 +117,9 @@ public class Logger {
         }
     }
 
+    /**
+     * Outputs the current log
+     */
     public void printLog() {
         System.out.println("---Log---------------");
         for(Map.Entry<Integer, LogEntry> entry : entries.entrySet()) {
@@ -125,7 +130,7 @@ public class Logger {
 
     /**
      * @see it.polimi.server.state.State#getLastLogIndex() getLastLogIndex
-     * @throws NoSuchElementException
+     * @throws NoSuchElementException If entries are empty 
      */
     public Integer getLastIndex() throws NoSuchElementException {
         synchronized (entriesSync) {

@@ -8,11 +8,26 @@ import java.rmi.RemoteException;
 import java.util.HashMap;
 import java.util.Map;
 
+/**
+ * Leader component to ping followers
+ */
 public class KeepAliveManager {
+    /**
+     * Milliseconds to wait between messages
+     */
     private static final int KEEPALIVE_INTERVAL = 10;
 
+    /**
+     * The owner
+     */
     private final Server server;
+    /**
+     * The cluster to keep alive
+     */
     private final Map<String, RemoteServerInterface> cluster;
+    /**
+     * Map of threads for each server
+     */
     private static Map<String, Thread> threads;
 
     public KeepAliveManager(Server server, Map<String, RemoteServerInterface> cluster) {
@@ -22,7 +37,7 @@ public class KeepAliveManager {
     }
 
     /**
-     * Start keep-alive process
+     * Starts the keep-alive process
      */
     public void startKeepAlive() {
         for(Map.Entry<String, RemoteServerInterface> entry: cluster.entrySet()) {
@@ -83,6 +98,9 @@ public class KeepAliveManager {
         }
     }
 
+    /**
+     * Stops the messages
+     */
     public void stopKeepAlive() {
         for(Thread thread: threads.values()) {
             thread.interrupt();

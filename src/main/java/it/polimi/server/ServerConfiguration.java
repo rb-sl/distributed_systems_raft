@@ -6,28 +6,32 @@ import java.net.InetAddress;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Class used to read server configuration files
+ */
 @Getter
 public class ServerConfiguration {
-    private String name;
-    private Integer port;
+    /**
+     * The server id
+     */
+    private final String name;
+    /**
+     * Address where to find the registry
+     */
+    private final InetAddress registryIP;
+    /**
+     * Port of the registry
+     */
+    private final Integer registryPort;
+    /**
+     * List of servers in cluster
+     */
+    private final List<ServerConfiguration> cluster;
 
-    private InetAddress registryIP;
-    private Integer registryPort;
-
-    private List<ServerConfiguration> cluster;
-    private List<InetAddress> knownAddresses;
-
-    private Map<String, Integer> variables;
-
-    public ServerConfiguration(String name, Integer port, InetAddress registryIP, Integer registryPort,
-                               List<ServerConfiguration> cluster, List<InetAddress> knownAddresses,
-                               Map<String, Integer> variables) {
+    public ServerConfiguration(String name, InetAddress registryIP, Integer registryPort, List<ServerConfiguration> cluster) {
         this.name = name;
-        this.port = port;
         this.registryIP = registryIP;
         this.registryPort = registryPort;
         this.cluster = cluster;
-        this.knownAddresses = knownAddresses;
-        this.variables = variables;
     }
 }

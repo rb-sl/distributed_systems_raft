@@ -3,6 +3,7 @@ package it.polimi.server;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import it.polimi.exceptions.NotLeaderException;
+import it.polimi.exceptions.ServerStoppedException;
 import it.polimi.networking.ClientResult;
 import it.polimi.networking.RemoteServerInterface;
 import it.polimi.networking.messages.*;
@@ -33,11 +34,13 @@ import java.util.*;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 
+import static java.lang.System.exit;
+
 public class Server implements RemoteServerInterface {
     /**
      * Configuration for the server
      */
-    private ServerConfiguration serverConfiguration;
+    private final ServerConfiguration serverConfiguration;
     
     /**
      * Server state
@@ -50,13 +53,18 @@ public class Server implements RemoteServerInterface {
      */
     private RemoteServerInterface selfInterface;
 
+    /**
+     * The registry
+     */
     private static Registry localRegistry;
 
     /**
      * Reference to the leader
      */
     private static RemoteServerInterface leader;
-
+    /**
+     * Synchronization object for leader
+     */
     private static final Object leaderSync = new Object();
 
     /**
@@ -65,16 +73,26 @@ public class Server implements RemoteServerInterface {
     @Getter
     private final Map<String, RemoteServerInterface> cluster;
 
+    /**
+     * The queue used to serialize message
+     */
     private static final BlockingQueue<Message> messageQueue = new LinkedBlockingQueue<>();
 
+    /**
+     * Requests to other servers by their requestNumber
+     */
     private static Map<Integer, Message.Type> outgoingRequests;
+    /**
+     * Synchronization object for outgoingRequests
+     */
     private static final Object outgoingSync = new Object();
+    
     /**
      * Server id
      */
     @Getter @Setter
     private String id;
-
+    
     /**
      * Number sent to other servers to couple requests
      * with responses
@@ -86,11 +104,20 @@ public class Server implements RemoteServerInterface {
      */
     private static final Object reqNumSync = new Object();
 
+    /**
+     * Object that manages interaction with clients
+     */
     @Getter
-    private ClientManager clientManager;
+    private final ClientManager clientManager;
 
+    /**
+     * Objects that manages election process
+     */
     private ElectionManager electionManager;
 
+    /**
+     * Object that manages keepalive process
+     */
     private KeepAliveManager keepAliveManager;
 
     private final Gson gson = new Gson();
@@ -113,16 +140,9 @@ public class Server implements RemoteServerInterface {
         clientManager = new ClientManager(this);
 
         this.id = serverName;
+        this.serverConfiguration = loadConfiguration(serverName);
         
-        try {
-            Path storage = Paths.get("./configuration/" + serverName + ".json");
-            Type type = new TypeToken<ServerConfiguration>() {}.getType();
-            this.serverConfiguration = gson.fromJson(Files.readString(storage), type);
-        } catch (NoSuchFileException e) {
-            System.err.println("Cannot find configuration for server '" + serverName + "'. Terminating.");
-            return;
-        } catch (IOException e) {
-            e.printStackTrace();
+        if(serverConfiguration == null) {
             return;
         }
 
@@ -140,7 +160,6 @@ public class Server implements RemoteServerInterface {
             } catch (AlreadyBoundException e) {
                 localRegistry.rebind(serverName, this.selfInterface);
             } catch (RemoteException e) {
-//                e.printStackTrace();
                 System.err.println("Creating local RMI registry");
                 Integer localPort = this.serverConfiguration.getRegistryPort();
                 if (localPort == null) {
@@ -175,15 +194,37 @@ public class Server implements RemoteServerInterface {
             e.printStackTrace();
         }
     }
-    
-    protected void start() {
+
+    /**
+     * Load server json configuration given the server name. If the conf file is absent it will create a new one
+     * @param serverName The server name
+     * @return A ServerConfiguration objects containing all configuration parameters
+     */
+    private ServerConfiguration loadConfiguration(String serverName) {
+        try {
+            Path storage = Paths.get("./configuration/" + serverName + ".json");
+            Type type = new TypeToken<ServerConfiguration>() {}.getType();
+            return gson.fromJson(Files.readString(storage), type);
+        } catch (NoSuchFileException e) {
+            System.err.println("Cannot find configuration for server '" + serverName + "'. Terminating.");
+            return null;
+        } catch (IOException e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    /**
+     * Main loop, executes the server
+     */
+    public void start() {
         this.serverState = new Follower(this, this.serverConfiguration.getVariables());
         System.err.println("Server '" + this.id + "' ready");
         
         // Start processing messages in the queue
         Message message;
         Result result;
-        while(true) {
+        while(true) {            
             try {
                 message = messageQueue.take();
                 result = null;
@@ -258,6 +299,10 @@ public class Server implements RemoteServerInterface {
                         }
                     }
                     case UpdateIndex -> this.serverState.setCommitIndex(((UpdateIndex) message).getCommitIndex());
+                    case Stop -> {
+                        System.err.println("Server " + id + " shutting down");
+                        throw new ServerStoppedException();
+                    }
                 }
 
                 // Replies to other servers
@@ -266,21 +311,24 @@ public class Server implements RemoteServerInterface {
                         || message.getMessageType() == Message.Type.RequestVote) {
                     message.getOrigin().reply(result);
                 }
-            } catch (InterruptedException e) {
-                System.err.println(Thread.currentThread().getId() + " - Thread interrupted, terminating");
+            } catch (InterruptedException | ServerStoppedException e) {
                 if(this.keepAliveManager != null) {
                     this.keepAliveManager.stopKeepAlive();
                 }
                 if(this.electionManager != null) {
                     this.electionManager.interruptElection();
                 }
-                return;
+                
+                exit(0);
             } catch (RemoteException e) {
                 e.printStackTrace();
             }
         }
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public RemoteServerInterface getLeader() {
         synchronized (leaderSync) {
             if(leader == null) {
@@ -293,7 +341,7 @@ public class Server implements RemoteServerInterface {
         }
         return leader;
     }
-
+    
     public void setLeader(RemoteServerInterface leader) {
         synchronized (leaderSync) {
             Server.leader = leader;
@@ -302,9 +350,9 @@ public class Server implements RemoteServerInterface {
         }
     }
 
-    /**
-     * {@inheritDoc}
-     */
+//    /**
+//     * {@inheritDoc}
+//     */
 //    public int addToCluster(RemoteServerInterface follower) throws RemoteException {
 //        int id;
 //        do {
@@ -334,10 +382,7 @@ public class Server implements RemoteServerInterface {
 //
 //        return id;
 //    }
-
-    /**
-     * {@inheritDoc}
-     */
+    
     public void addToCluster(String id, RemoteServerInterface server) {
         cluster.put(id, server); // todo synchronize on cluster?
     }
@@ -356,6 +401,11 @@ public class Server implements RemoteServerInterface {
         }
     }
 
+    /**
+     * Add request to the outgoing requests map
+     * @param receipt The map key
+     * @param messageType The message type
+     */
     public void addRequest(Integer receipt, Message.Type messageType) {
         synchronized (outgoingSync) {
             outgoingRequests.put(receipt, messageType);
@@ -373,6 +423,9 @@ public class Server implements RemoteServerInterface {
         return currentRequest;
     }
 
+    /**
+     * @see RemoteServerInterface#appendEntries(RemoteServerInterface, int, String, Integer, Integer, SortedMap, Integer) 
+     */
     public Result appendEntries(AppendEntries message) {
         // Set leader
         setLeader(cluster.get(message.getLeaderId()));
@@ -424,6 +477,9 @@ public class Server implements RemoteServerInterface {
         return new Result(message.getInternalRequestNumber(), currentTerm, true);
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public int requestVote(RemoteServerInterface origin, int term, String candidateId, Integer lastLogIndex, Integer lastLogTerm) throws RemoteException {
         int currentRequest = nextRequestNumber();
         
@@ -433,7 +489,7 @@ public class Server implements RemoteServerInterface {
     }
 
     /**
-     * {@inheritDoc}
+     * @see RemoteServerInterface#requestVote(RemoteServerInterface, int, String, Integer, Integer) 
      */
     public Result requestVote(RequestVote message) {
         int term = message.getTerm();
@@ -477,7 +533,11 @@ public class Server implements RemoteServerInterface {
 
         return new Result(message.getInternalRequestNumber(), currentTerm, false);
     }
-    
+
+    /**
+     * Get the next request number
+     * @return Next request number
+     */
     public Integer nextRequestNumber() {
         Integer currentRequest;
         synchronized (reqNumSync) {
@@ -487,6 +547,9 @@ public class Server implements RemoteServerInterface {
         return currentRequest;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public int installSnapshot(RemoteServerInterface origin, int term, String leaderId, Integer lastIncludedIndex, Integer lastIncludedTerm, int offset, byte[] data, boolean done) throws RemoteException {
         int currentRequest = nextRequestNumber();
@@ -496,6 +559,9 @@ public class Server implements RemoteServerInterface {
         return currentRequest;
     }
 
+    /**
+     * @see RemoteServerInterface#installSnapshot(RemoteServerInterface, int, String, Integer, Integer, int, byte[], boolean)
+     */
     public Result installSnapshot(InstallSnapshot message) {
         // 1. Reply immediately if term < currentTerm
         if(message.getTerm() < this.serverState.getCurrentTerm()) {
@@ -574,16 +640,25 @@ public class Server implements RemoteServerInterface {
         return new Result(message.getInternalRequestNumber(), this.serverState.getCurrentTerm(), true);
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public void reply(Result result) throws RemoteException {
         enqueue(result);
     }
 
+    /**
+     * Start the keepalive process
+     */
     public void startKeepAlive() {
         this.keepAliveManager = new KeepAliveManager(this, cluster);
         this.keepAliveManager.startKeepAlive();
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public synchronized void updateCluster(String serverName, RemoteServerInterface serverInterface) { // todo change to object sync
         this.cluster.put(serverName, serverInterface);
@@ -593,14 +668,28 @@ public class Server implements RemoteServerInterface {
         }
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public Integer read(String clientId, Integer clientRequestNumber, String variable) throws RemoteException, NotLeaderException {
         return clientManager.read(clientId, clientRequestNumber, variable);
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public Integer write(String clientId, Integer clientRequestNumber, String variable, Integer value) throws RemoteException, NotLeaderException {
         return clientManager.write(clientId, clientRequestNumber, variable, value);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public void stop() {
+        enqueue(new Stop());
     }
 
     /**

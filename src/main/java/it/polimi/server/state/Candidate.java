@@ -10,8 +10,10 @@ import it.polimi.server.log.Logger;
 import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
 
+/**
+ * State for the candidate
+ */
 public class Candidate extends State {
-
     /**
      * Election timer
      */
@@ -23,12 +25,11 @@ public class Candidate extends State {
     private static int nVotes;
 
     public Candidate(State state) {
-        this(state.server, state.currentTerm, state.votedFor, state.logger, state.commitIndex, state.lastApplied);
+        this(state.server, state.currentTerm, state.votedFor, state.logger, commitIndex, state.lastApplied);
     }
 
     public Candidate(Server server, Integer currentTerm, String votedFor, Logger logger, Integer commitIndex, Integer lastApplied) {
         super(server, currentTerm, votedFor, logger, commitIndex, lastApplied);
-
         super.role = Role.Candidate;
 
         System.out.println(Thread.currentThread().getId() + " [!] Changed to CANDIDATE in Term " + currentTerm);
@@ -73,7 +74,7 @@ public class Candidate extends State {
      * Starts election timer
      */
     private void startTimer() {
-        // Randomize timeout
+        // Randomized timeout
         electionTimer = new Timer();
         int timeout = ThreadLocalRandom.current().nextInt(MIN_ELECTION_TIMEOUT, ELECTION_TIMEOUT + 1);
         // If election timeout elapses: start new election
@@ -128,6 +129,9 @@ public class Candidate extends State {
         }
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public void stopTimers() {
         super.stopTimers();

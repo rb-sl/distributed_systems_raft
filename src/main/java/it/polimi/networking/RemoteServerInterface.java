@@ -12,7 +12,7 @@ public interface RemoteServerInterface extends Remote {
         /**
          * Returns the leader's interface
          * @return The leader's interface
-         * @throws RemoteException Una cosa di RMI da mettere sempre, se no si incazza
+         * @throws RemoteException For RMI
          */
         RemoteServerInterface getLeader() throws RemoteException;
 
@@ -22,14 +22,14 @@ public interface RemoteServerInterface extends Remote {
          * @param id
          * @param follower The follower
          * @return The given ID
-         * @throws RemoteException Una cosa di RMI da mettere sempre, se no si incazza
+         * @throws RemoteException For RMI
          */
 //        int addToCluster(String id, RemoteServerInterface follower) throws RemoteException;
 
 //        void addToCluster(int id, RemoteServerInterface follower) throws RemoteException;
 
         /**
-         *
+         * Invoked by leader to replicate log entries (§5.3); also used as heartbeat (§5.2).
          * @param term Leader's term
          * @param leaderId So follower can redirect clients
          * @param prevLogIndex Index of log entry immediately preceding new ones
@@ -41,21 +41,44 @@ public interface RemoteServerInterface extends Remote {
         int appendEntries(RemoteServerInterface origin, int term, String leaderId, Integer prevLogIndex, Integer prevLogTerm, SortedMap<Integer, LogEntry> entries, Integer leaderCommit) throws RemoteException;
 
         /**
-         *
+         * Invoked by candidates to gather votes (§5.2).
          * @param term Candidate’s term
          * @param candidateId Candidate requesting vote
          * @param lastLogIndex Index of candidate’s last log entry (§5.4)
          * @param lastLogTerm term of candidate’s last log entry (§5.4)
          * @return Request number
-         * @throws RemoteException Una cosa di RMI da mettere sempre, se no si incazza
+         * @throws RemoteException For RMI
          */
         int requestVote(RemoteServerInterface origin, int term, String candidateId, Integer lastLogIndex, Integer lastLogTerm) throws RemoteException;
-        
-        
+
+        /**
+         * Invoked by leader to send chunks of a snapshot to a follower. Leaders always send chunks in order.
+         * @param origin The leader's interface
+         * @param term Leader’s term
+         * @param leaderId So follower can redirect clients
+         * @param lastIncludedIndex The snapshot replaces all entries up through and including this index
+         * @param lastIncludedTerm Term of lastIncludedIndex
+         * @param offset Byte offset where chunk is positioned in the snapshot file
+         * @param data Raw bytes of the snapshot chunk, starting at offset
+         * @param done true if this is the last chunk
+         * @return The request number
+         * @throws RemoteException For RMI
+         */
         int installSnapshot(RemoteServerInterface origin, int term, String leaderId, Integer lastIncludedIndex, Integer lastIncludedTerm, int offset, byte[] data, boolean done) throws RemoteException;
 
+        /**
+         * Receive remote execution result
+         * @param result The result
+         * @throws RemoteException RMI exception
+         */
         void reply(Result result) throws RemoteException;
 
+        /**
+         * Starts keepalive and replication on a new available server
+         * @param serverName The new server name
+         * @param serverInterface RemoteServerInterface object
+         * @throws RemoteException RMI exception
+         */
         void updateCluster(String serverName, RemoteServerInterface serverInterface) throws RemoteException;
 
         // Methods called by clients
@@ -64,7 +87,7 @@ public interface RemoteServerInterface extends Remote {
          * @param clientRequestNumber The number assigned to the request by the client
          * @param variable The variable's name
          * @return The variable value
-         * @throws RemoteException Roba di RMI
+         * @throws RemoteException For RMI
          * @throws NotLeaderException When the queried server is not the leader
          */
         Integer read(String clientId, Integer clientRequestNumber, String variable) throws RemoteException, NotLeaderException;
@@ -75,8 +98,14 @@ public interface RemoteServerInterface extends Remote {
          * @param variable The variable's name
          * @param value The variable's value
          * @return The number of written elements
-         * @throws RemoteException Roba di RMI
+         * @throws RemoteException For RMI
          * @throws NotLeaderException When the queried server is not the leader
          */
         Integer write(String clientId, Integer clientRequestNumber, String variable, Integer value) throws RemoteException, NotLeaderException;
+
+        /**
+         * Stops the server execution
+         * @throws RemoteException For RMI
+         */
+        void stop() throws RemoteException;
 }

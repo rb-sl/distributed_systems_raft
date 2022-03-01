@@ -9,21 +9,41 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Server component to handle elections
+ */
 public class ElectionManager {
-    private Server server;
+    /**
+     * The owner
+     */
+    private final Server server;
+    /**
+     * The servers to contact
+     */
     private final Map<String, RemoteServerInterface> activeCluster;
 
-    int term;
-    private Integer lastLogIndex;
-    private Integer lastLogTerm;
+    /**
+     * Current term
+     */
+    private final int term;
+    /**
+     * Last index of the candidate log
+     */
+    private final Integer lastLogIndex;
+    /**
+     * Term of lastLogIndex
+     */
+    private final Integer lastLogTerm;
 
+    /**
+     * Thread handling the election
+     */
     private static Thread electionThread;
 
     /**
-     * List of election threads.
-     * Used to ask for votes
+     * List of election threads, used to ask for votes
      */
-    private List<Thread> electionThreads;
+    private final List<Thread> electionThreads;
 
     public ElectionManager(Server server, Map<String, RemoteServerInterface> cluster, int term, Integer lastLogIndex, Integer lastLogTerm) {
         this.server = server;
@@ -35,13 +55,16 @@ public class ElectionManager {
         this.lastLogTerm = lastLogTerm;
     }
 
+    /**
+     * Starts the election thread
+     */
     public void startElection() {
         electionThread = new Thread(this::election);
         electionThread.start();
     }
 
     /**
-     * Starts election process
+     * Starts the election process
      */
     public void election() {
         Thread thread;
@@ -78,7 +101,7 @@ public class ElectionManager {
     }
 
     /**
-     * Send a message to a server to ask for its vote
+     * Sends a message to a server to ask for its vote
      * @param remoteServer The server
      */
     private void askForVote(RemoteServerInterface remoteServer, int term, Integer lastLogIndex, Integer lastLogTerm){
@@ -95,6 +118,9 @@ public class ElectionManager {
         System.out.println("Election request interrupted");
     }
 
+    /**
+     * Stops the election
+     */
     public void interruptElection() {
         if(electionThread != null) {
             electionThread.interrupt();

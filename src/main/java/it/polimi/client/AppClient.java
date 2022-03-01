@@ -10,12 +10,14 @@ public class AppClient {
     public static void main(String[] args) {
         Client client;
         
+        // args[0] -> clientName
         if(args.length == 1) {
             client = new Client(args[0]);
         }
         else {
             client = new Client();
         }
-        client.start();
+        
+        client.startCmd();
     }
 }
