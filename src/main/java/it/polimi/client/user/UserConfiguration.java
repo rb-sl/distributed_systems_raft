@@ -1,4 +1,4 @@
-package it.polimi.client;
+package it.polimi.client.user;
 
 import lombok.Getter;
 
@@ -8,7 +8,7 @@ import java.net.InetAddress;
  * Class to read client configuration json files
  */
 @Getter
-public class ClientConfiguration {
+public class UserConfiguration {
     /**
      * The client name
      */
@@ -26,7 +26,7 @@ public class ClientConfiguration {
      */
     private final Boolean isAdmin;
 
-    public ClientConfiguration(String name, InetAddress raftRegistryIP, Integer raftRegistryPort, Boolean isAdmin) {
+    public UserConfiguration(String name, InetAddress raftRegistryIP, Integer raftRegistryPort, Boolean isAdmin) {
         this.name = name;
         this.raftRegistryIP = raftRegistryIP;
         this.raftRegistryPort = raftRegistryPort;

@@ -16,6 +16,10 @@ public class ServerConfiguration {
      */
     private final String name;
     /**
+     * Port where to bind the server
+     */
+    private final Integer port;
+    /**
      * Address where to find the registry
      */
     private final InetAddress registryIP;
@@ -28,8 +32,9 @@ public class ServerConfiguration {
      */
     private final List<ServerConfiguration> cluster;
 
-    public ServerConfiguration(String name, InetAddress registryIP, Integer registryPort, List<ServerConfiguration> cluster) {
+    public ServerConfiguration(String name, Integer port, InetAddress registryIP, Integer registryPort, List<ServerConfiguration> cluster) {
         this.name = name;
+        this.port = port;
         this.registryIP = registryIP;
         this.registryPort = registryPort;
         this.cluster = cluster;

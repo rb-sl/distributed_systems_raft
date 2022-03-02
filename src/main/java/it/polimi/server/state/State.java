@@ -116,10 +116,8 @@ public abstract class State {
      * Init constructor
      * @param server The server
      */
-    public State(Server server, Map<String, Integer> variables) {
+    public State(Server server) {
         this(server, null, null, new Logger(server), null, null);
-
-        System.out.println("Restored variables: " + this.variables);
     }
 
     /**

@@ -218,7 +218,7 @@ public class Server implements RemoteServerInterface {
      * Main loop, executes the server
      */
     public void start() {
-        this.serverState = new Follower(this, this.serverConfiguration.getVariables());
+        this.serverState = new Follower(this);
         System.err.println("Server '" + this.id + "' ready");
         
         // Start processing messages in the queue

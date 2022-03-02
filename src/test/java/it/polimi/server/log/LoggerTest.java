@@ -4,7 +4,6 @@ import com.google.gson.Gson;
 import it.polimi.exceptions.IndexAlreadyDiscardedException;
 import it.polimi.server.Server;
 import it.polimi.server.state.State;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import static org.mockito.Mockito.*;

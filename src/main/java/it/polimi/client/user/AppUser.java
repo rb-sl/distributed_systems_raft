@@ -1,23 +1,23 @@
-package it.polimi.client;
+package it.polimi.client.user;
 
 /**
  * Class used to launch the client
  */
-public class AppClient {
+public class AppUser {
     /**
        Main for the client application
      */
     public static void main(String[] args) {
-        Client client;
+        User user;
         
         // args[0] -> clientName
         if(args.length == 1) {
-            client = new Client(args[0]);
+            user = new User(args[0]);
         }
         else {
-            client = new Client();
+            user = new User();
         }
         
-        client.startCmd();
+        user.startCmd();
     }
 }
