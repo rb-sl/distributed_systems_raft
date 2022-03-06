@@ -16,10 +16,23 @@ public class Result extends Message {
      */
     private final boolean success;
 
-    public Result(Integer requestNumber, int term, boolean success) {
+    /**
+     * Id of the source of the result
+     */
+    private final String originId;
+
+    /**
+     * Type of the original message
+     */
+    private final Type answerTo;
+
+    public Result(String originId, Message.Type answerTo, Integer requestNumber, int term, boolean success) {
         super.messageType = Type.Result;
         super.internalRequestNumber = requestNumber;
+        
+        this.originId = originId;        
         this.term = term;
         this.success = success;
+        this.answerTo = answerTo;
     }
 }

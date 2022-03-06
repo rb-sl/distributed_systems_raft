@@ -57,7 +57,7 @@ public class User extends Client {
      * @param variable The name of the variable
      * @return The variable's value 
      */
-    private Integer readFromCluster(String variable) {
+    public Integer readFromCluster(String variable) {
         Integer result = null;
         boolean requestComplete = false;
         while (!requestComplete) {
@@ -84,7 +84,7 @@ public class User extends Client {
      * @param value The value to write
      * @return The number of completed operations
      */
-    private Integer writeToCluster(String variable, Integer value) {
+    public Integer writeToCluster(String variable, Integer value) {
         Integer nWritten = null;
         boolean requestComplete = false;
         while (!requestComplete) {

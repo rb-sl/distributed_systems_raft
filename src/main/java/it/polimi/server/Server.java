@@ -86,6 +86,11 @@ public class Server implements RemoteServerInterface {
      * Synchronization object for outgoingRequests
      */
     private static final Object outgoingSync = new Object();
+
+    /**
+     * Latest receipt given by servers, syncs with outgoingRequests
+     */
+    private static Map<String, Integer> lastReceipt;
     
     /**
      * Server id
@@ -136,6 +141,7 @@ public class Server implements RemoteServerInterface {
     public Server(String serverName) {
         this.cluster = new HashMap<>();
         outgoingRequests = new HashMap<>();
+        lastReceipt = new HashMap<>();
 
         clientManager = new ClientManager(this);
 
@@ -236,13 +242,16 @@ public class Server implements RemoteServerInterface {
                     case Result -> {
                         result = (Result) message;
                         synchronized (outgoingSync) {
+                            Integer last = lastReceipt.get(result.getOriginId());
                             if (outgoingRequests.containsKey(result.getInternalRequestNumber())) {
                                 Message.Type type = outgoingRequests.remove(result.getInternalRequestNumber());
                                 this.serverState.processResult(type, result);
-                            } else {
+                            } else if(result.getInternalRequestNumber() > last) {
                                 // If the request was not added yet it is re-enqueued
-//                                enqueue(result);
-//                                System.err.println("REENQUEUED");
+                                enqueue(result);
+                                System.err.println("Re-enqueueing receipt " + result.getInternalRequestNumber() 
+                                        + ", waiting for " + last + " from " + result.getOriginId()
+                                        + "; type: " + result.getAnswerTo());
                             }
                         }
                     }
@@ -406,25 +415,24 @@ public class Server implements RemoteServerInterface {
      * @param receipt The map key
      * @param messageType The message type
      */
-    public void addRequest(Integer receipt, Message.Type messageType) {
+    public void addRequest(String target, Integer receipt, Message.Type messageType) {
         synchronized (outgoingSync) {
             outgoingRequests.put(receipt, messageType);
+            lastReceipt.put(target, receipt);
         }
     }
 
     /**
      * {@inheritDoc}
      */
-    public int appendEntries(RemoteServerInterface origin, int term, String leaderId, Integer prevLogIndex, Integer prevLogTerm, SortedMap<Integer, LogEntry> newEntries, Integer leaderCommit) throws RemoteException {
-        int currentRequest = nextRequestNumber();
-        
-        enqueue(new AppendEntries(currentRequest, origin, term, leaderId, prevLogIndex, prevLogTerm, newEntries, leaderCommit));
-
-        return currentRequest;
+    public void appendEntries(RemoteServerInterface origin, Integer requestNumber, int term, String leaderId, 
+                              Integer prevLogIndex, Integer prevLogTerm, SortedMap<Integer, LogEntry> newEntries, 
+                              Integer leaderCommit) throws RemoteException {
+        enqueue(new AppendEntries(requestNumber, origin, term, leaderId, prevLogIndex, prevLogTerm, newEntries, leaderCommit));
     }
 
     /**
-     * @see RemoteServerInterface#appendEntries(RemoteServerInterface, int, String, Integer, Integer, SortedMap, Integer) 
+     * @see RemoteServerInterface#appendEntries(RemoteServerInterface, Integer, int, String, Integer, Integer, SortedMap, Integer) 
      */
     public Result appendEntries(AppendEntries message) {
         // Set leader
@@ -439,14 +447,14 @@ public class Server implements RemoteServerInterface {
         // 1. Reply false if term < currentTerm (§5.1)
         if(currentTerm != null && message.getTerm() < currentTerm) {
             System.out.println("AppendEntries ignored: term " + message.getTerm() + " < " + currentTerm);
-            return new Result(message.getInternalRequestNumber(), currentTerm, false);
+            return new Result(this.id, Message.Type.AppendEntry, message.getInternalRequestNumber(), currentTerm, false);
         }
 
         // 2. Reply false if log does not contain an entry at prevLogIndex
         // whose term matches prevLogTerm (§5.3)
         if(message.getPrevLogTerm() != null && !message.getPrevLogTerm().equals(this.serverState.getLogger().termAtPosition(message.getPrevLogIndex()))) {
             System.out.println("AppendEntries ignored: no log entry at prevLogIndex = " + message.getPrevLogIndex());
-            return new Result(message.getInternalRequestNumber(), currentTerm, false);
+            return new Result(this.id, Message.Type.AppendEntry, message.getInternalRequestNumber(), currentTerm, false);
         }
 
         if(message.getNewEntries() != null) {
@@ -474,22 +482,18 @@ public class Server implements RemoteServerInterface {
             this.serverState.setCommitIndex(newIndex);
         }
 
-        return new Result(message.getInternalRequestNumber(), currentTerm, true);
+        return new Result(this.id, Message.Type.AppendEntry, message.getInternalRequestNumber(), currentTerm, true);
     }
 
     /**
      * {@inheritDoc}
      */
-    public int requestVote(RemoteServerInterface origin, int term, String candidateId, Integer lastLogIndex, Integer lastLogTerm) throws RemoteException {
-        int currentRequest = nextRequestNumber();
-        
-        enqueue(new RequestVote(currentRequest, origin, term, candidateId, lastLogIndex, lastLogTerm));
-
-        return currentRequest;
+    public void requestVote(RemoteServerInterface origin, Integer requestNumber, int term, String candidateId, Integer lastLogIndex, Integer lastLogTerm) throws RemoteException {
+        enqueue(new RequestVote(requestNumber, origin, term, candidateId, lastLogIndex, lastLogTerm));
     }
 
     /**
-     * @see RemoteServerInterface#requestVote(RemoteServerInterface, int, String, Integer, Integer) 
+     * @see RemoteServerInterface#requestVote(RemoteServerInterface, Integer, int, String, Integer, Integer) 
      */
     public Result requestVote(RequestVote message) {
         int term = message.getTerm();
@@ -511,7 +515,7 @@ public class Server implements RemoteServerInterface {
 
         // 1. Reply false if term < currentTerm (§5.1)
         if(term < currentTerm) {
-            return new Result(message.getInternalRequestNumber(), currentTerm, false);
+            return new Result(this.id, Message.Type.RequestVote, message.getInternalRequestNumber(), currentTerm, false);
         }
 
         // 2. If votedFor is null or candidateId, and candidate’s log is at
@@ -528,10 +532,10 @@ public class Server implements RemoteServerInterface {
             this.serverState.receivedMsg(term);
 
             System.out.println(Thread.currentThread().getId() + " [Term " + currentTerm + "] Voted for " + candidateId);
-            return new Result(message.getInternalRequestNumber(), currentTerm, true);
+            return new Result(this.id, Message.Type.RequestVote, message.getInternalRequestNumber(), currentTerm, true);
         }
 
-        return new Result(message.getInternalRequestNumber(), currentTerm, false);
+        return new Result(this.id, Message.Type.RequestVote, message.getInternalRequestNumber(), currentTerm, false);
     }
 
     /**
@@ -551,21 +555,22 @@ public class Server implements RemoteServerInterface {
      * {@inheritDoc}
      */
     @Override
-    public int installSnapshot(RemoteServerInterface origin, int term, String leaderId, Integer lastIncludedIndex, Integer lastIncludedTerm, int offset, byte[] data, boolean done) throws RemoteException {
-        int currentRequest = nextRequestNumber();
-
-        enqueue(new InstallSnapshot(currentRequest, origin, term, leaderId, lastIncludedIndex, lastIncludedTerm, offset, data, done));
-
-        return currentRequest;
+    public void installSnapshot(RemoteServerInterface origin, Integer requestNumber, int term, String leaderId, Integer lastIncludedIndex,
+                                Integer lastIncludedTerm, int offset, byte[] data, boolean done) throws RemoteException {
+        enqueue(new InstallSnapshot(requestNumber, origin, term, leaderId, lastIncludedIndex, lastIncludedTerm, offset, data, done));
     }
 
     /**
-     * @see RemoteServerInterface#installSnapshot(RemoteServerInterface, int, String, Integer, Integer, int, byte[], boolean)
+     * @see RemoteServerInterface#installSnapshot(RemoteServerInterface, Integer, int, String, Integer, Integer, int, byte[], boolean) 
      */
     public Result installSnapshot(InstallSnapshot message) {
+        // Stops [If election timeout elapses without receiving AppendEntries RPC from current leader or granting
+        // vote to candidate: convert to candidate], should count as appendEntries for this matter
+        this.serverState.receivedMsg(message.getTerm());
+        
         // 1. Reply immediately if term < currentTerm
         if(message.getTerm() < this.serverState.getCurrentTerm()) {
-            return new Result(message.getInternalRequestNumber(), this.serverState.getCurrentTerm(), false);
+            return new Result(this.id, Message.Type.InstallSnapshot, message.getInternalRequestNumber(), this.serverState.getCurrentTerm(), false);
         }
         
         // 2. Create new snapshot file if first chunk (offset is 0)
@@ -577,7 +582,7 @@ public class Server implements RemoteServerInterface {
                 snapshotTempFile = new RandomAccessFile(Files.createFile(snapshotPath).toFile(), "rw");
             } catch (IOException e) {
                 e.printStackTrace();
-                return new Result(message.getInternalRequestNumber(), this.serverState.getCurrentTerm(), false);
+                return new Result(this.id, Message.Type.InstallSnapshot, message.getInternalRequestNumber(), this.serverState.getCurrentTerm(), false);
             }
         }
         else {
@@ -585,7 +590,7 @@ public class Server implements RemoteServerInterface {
                 snapshotTempFile = new RandomAccessFile(snapshotPath.toString(), "rw");
             } catch (FileNotFoundException e) {
                 e.printStackTrace();
-                return new Result(message.getInternalRequestNumber(), this.serverState.getCurrentTerm(), false);
+                return new Result(this.id, Message.Type.InstallSnapshot, message.getInternalRequestNumber(), this.serverState.getCurrentTerm(), false);
             }
         }
         
@@ -604,7 +609,7 @@ public class Server implements RemoteServerInterface {
 
         // 4. Reply and wait for more data chunks if done is false
         if(!message.isDone()) {
-            return new Result(message.getInternalRequestNumber(), this.serverState.getCurrentTerm(), true);
+            return new Result(this.id, Message.Type.InstallSnapshot, message.getInternalRequestNumber(), this.serverState.getCurrentTerm(), true);
         }
         
         // 5. Save snapshot file, discard any existing or partial snapshot with a smaller index
@@ -621,7 +626,7 @@ public class Server implements RemoteServerInterface {
             LogEntry lastSnapshotEntry = this.getServerState().getLogger().getEntry(message.getLastIncludedIndex());
             if (lastSnapshotEntry != null && lastSnapshotEntry.getTerm() == message.getLastIncludedTerm()) {
                 this.getServerState().getLogger().clearUpToIndex(message.getLastIncludedIndex(), false);
-                return new Result(message.getInternalRequestNumber(), this.serverState.getCurrentTerm(), true);
+                return new Result(this.id, Message.Type.InstallSnapshot, message.getInternalRequestNumber(), this.serverState.getCurrentTerm(), true);
             }
         } catch(NoSuchElementException e) {
             // The last element did not exist, so continue
@@ -637,7 +642,7 @@ public class Server implements RemoteServerInterface {
         
         System.out.println("InstallSnapshot complete: updated variables = " + getServerState().getVariables());
         
-        return new Result(message.getInternalRequestNumber(), this.serverState.getCurrentTerm(), true);
+        return new Result(this.id, Message.Type.InstallSnapshot, message.getInternalRequestNumber(), this.serverState.getCurrentTerm(), true);
     }
 
     /**

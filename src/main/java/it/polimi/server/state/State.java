@@ -13,6 +13,7 @@ import it.polimi.server.log.LogEntry;
 import it.polimi.server.log.Logger;
 import it.polimi.server.log.Snapshot;
 import lombok.Getter;
+import lombok.NonNull;
 import lombok.Setter;
 
 import java.io.*;
@@ -226,6 +227,8 @@ public abstract class State {
         }
     }
 
+    private static int nsnap = 0;
+
     /**
      * Apply the entry to the machine state
      * @param entry The entry
@@ -247,7 +250,11 @@ public abstract class State {
         synchronized (variableSync) {
             this.variables.put(key, val);
         }
-        logger.takeSnapshot(); // todo bring into async
+        nsnap++;
+        if(nsnap == 20) {
+            logger.takeSnapshot(); // todo bring into configuration
+            nsnap = 0;
+        }
     }
     
     public Map<String, Integer> getVariables() {

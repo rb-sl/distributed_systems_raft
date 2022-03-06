@@ -207,15 +207,18 @@ public class Leader extends State {
                 synchronized (commitIndexSync) {
                     commit = commitIndex;
                 }
-                int receipt;
+                
+                Integer receipt;
                 try {
                     try {
-                        receipt = serverInterface.appendEntries(this.server, currentTerm, this.server.getId(),
-                                prevLogIndex, logger.termAtPosition(prevLogIndex), logger.getEntriesSince(next), commit);
+                        receipt = this.server.nextRequestNumber();
                         synchronized (receiptSync) {
                             pendingRequests.add(receipt);
                         }
-                        this.server.addRequest(receipt, Message.Type.AppendEntry);
+                        this.server.addRequest(serverId, receipt, Message.Type.AppendEntry);
+
+                        serverInterface.appendEntries(this.server, receipt, currentTerm, this.server.getId(),
+                                    prevLogIndex, logger.termAtPosition(prevLogIndex), logger.getEntriesSince(next), commit);
                         waitForResult(serverId, lastLogIndex, receipt);
                     } catch (IndexAlreadyDiscardedException e) {
                         sendSnapshot(serverId, lastLogIndex, serverInterface);
@@ -296,7 +299,7 @@ public class Leader extends State {
                 this.logger.termAtPosition(this.logger.getLastIndex()));
         byte[] data = gson.toJson(snapshot).getBytes();
 
-        int receipt;
+        Integer receipt;
         int iterations = (int) Math.ceil((float) data.length / Snapshot.CHUNK_DIMENSION);
         for (int i = 0; i < iterations; i++) {
             byte[] dataChunk = new byte[Snapshot.CHUNK_DIMENSION];
@@ -311,17 +314,17 @@ public class Leader extends State {
             boolean done = false;
             do {
                 try {
-                    receipt = serverInterface.installSnapshot(this.server, currentTerm, this.server.getId(),
-                            snapshot.getLastIncludedIndex(), snapshot.getLastIncludedTerm(),
-                            i, dataChunk, i == iterations - 1);
+                    receipt = this.server.nextRequestNumber();
                     synchronized (receiptSync) {
                         pendingRequests.add(receipt);
                     }
-                    // Waits for the result to update the nextIndex only on the last part of InstallSnapshot
-                    if (i == iterations - 1) {
-                        this.server.addRequest(receipt, Message.Type.InstallSnapshot);
-                        waitForResult(serverId, lastLogIndex, receipt);
-                    }
+                    this.server.addRequest(serverId, receipt, Message.Type.InstallSnapshot);
+                   
+                    serverInterface.installSnapshot(this.server, receipt, currentTerm, this.server.getId(),
+                            snapshot.getLastIncludedIndex(), snapshot.getLastIncludedTerm(),
+                            i, dataChunk, i == iterations - 1);
+                    waitForResult(serverId, lastLogIndex, receipt);
+                    
                     done = true;
                 } catch (RemoteException e) {
                     continue;

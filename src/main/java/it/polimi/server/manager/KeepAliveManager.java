@@ -1,6 +1,7 @@
 package it.polimi.server.manager;
 
 import it.polimi.networking.RemoteServerInterface;
+import it.polimi.networking.messages.Message;
 import it.polimi.server.Server;
 import it.polimi.server.state.State;
 
@@ -76,10 +77,13 @@ public class KeepAliveManager {
         String originId = this.server.getId();
         State serverState = server.getServerState();
 
+        Integer receipt;
         while(!Thread.currentThread().isInterrupted()) {
             try {
-                serverInterface.appendEntries(this.server, term, originId, null,
-                        null, null, null);
+                receipt = this.server.nextRequestNumber();
+                this.server.addRequest(serverId, receipt, Message.Type.RequestVote);
+                serverInterface.appendEntries(this.server, receipt, term, originId,
+                        null, null, null, null);                
             } catch (RemoteException e) {
                 // Host unreachable
                 System.err.println(Thread.currentThread().getId() + " [KeepAlive] " + serverId + " unreachable");

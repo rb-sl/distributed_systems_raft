@@ -71,7 +71,7 @@ public class ElectionManager {
 
         for (Map.Entry<String, RemoteServerInterface> entry : this.activeCluster.entrySet()) {
             if(!entry.getKey().equals(server.getId())) {                
-                thread = new Thread(() -> askForVote(entry.getValue(), this.term, this.lastLogIndex, this.lastLogTerm));
+                thread = new Thread(() -> askForVote(entry.getKey(), entry.getValue(), this.term, this.lastLogIndex, this.lastLogTerm));
                 thread.setDaemon(true);
                 electionThreads.add(thread);
                 thread.start();
@@ -104,12 +104,13 @@ public class ElectionManager {
      * Sends a message to a server to ask for its vote
      * @param remoteServer The server
      */
-    private void askForVote(RemoteServerInterface remoteServer, int term, Integer lastLogIndex, Integer lastLogTerm){
+    private void askForVote(String remoteId, RemoteServerInterface remoteServer, int term, Integer lastLogIndex, Integer lastLogTerm){
+        Integer receipt;
         while(!Thread.currentThread().isInterrupted()) {
             try {
-                int receipt = remoteServer.requestVote(this.server, term, this.server.getId(), lastLogIndex, lastLogTerm);
-
-                this.server.addRequest(receipt, Message.Type.RequestVote);
+                receipt = this.server.nextRequestNumber();
+                this.server.addRequest(remoteId, receipt, Message.Type.RequestVote);
+                remoteServer.requestVote(this.server, receipt, term, this.server.getId(), lastLogIndex, lastLogTerm);
                 return;
             } catch (RemoteException e) {
                 System.err.println("Server unreachable - retrying...");

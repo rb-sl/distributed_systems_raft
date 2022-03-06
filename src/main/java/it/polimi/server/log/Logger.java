@@ -122,8 +122,10 @@ public class Logger {
      */
     public void printLog() {
         System.out.println("---Log---------------");
-        for(Map.Entry<Integer, LogEntry> entry : entries.entrySet()) {
-            System.out.println(entry.getKey() + ": [Term " + entry.getValue().getTerm() + "] " + entry.getValue().getVarName() + " ← " + entry.getValue().getValue());
+        synchronized (entriesSync) {
+            for (Map.Entry<Integer, LogEntry> entry : entries.entrySet()) {
+                System.out.println(entry.getKey() + ": [Term " + entry.getValue().getTerm() + "] " + entry.getValue().getVarName() + " ← " + entry.getValue().getValue());
+            }
         }
         System.out.println("---------------------");
     }
@@ -183,7 +185,7 @@ public class Logger {
             if(!entries.containsKey(next)) {
                 throw new IndexAlreadyDiscardedException("Index not available", next);
             }
-            return entries.tailMap(next);
+            return new TreeMap<>(entries.tailMap(next));
         }
     }
 
@@ -249,7 +251,7 @@ public class Logger {
      */
     public SortedMap<Integer, LogEntry> getEntries() {
         synchronized(entriesSync) {
-            return entries;
+            return new TreeMap<>(entries);
         }
     }
 

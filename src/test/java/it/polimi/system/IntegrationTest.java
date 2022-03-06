@@ -1,7 +1,9 @@
 package it.polimi.system;
 
 import it.polimi.client.admin.AdminConsole;
+import it.polimi.client.user.User;
 import it.polimi.server.Server;
+import it.polimi.server.log.Logger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -14,8 +16,7 @@ import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
 
 import static it.polimi.utilities.ProcessStarter.startServerProcess;
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
-import static org.junit.jupiter.api.Assertions.fail;
+import static org.junit.jupiter.api.Assertions.*;
 
 public class IntegrationTest {
     private static Registry localRegistry;
@@ -42,7 +43,7 @@ public class IntegrationTest {
     }
     
     @Test
-    void testTest() throws InterruptedException {
+    void testTest() {
         Server s = new Server("server1");
         Thread thread = new Thread(s::start);
         thread.setDaemon(true);
@@ -66,6 +67,8 @@ public class IntegrationTest {
         } catch (InterruptedException e) {
             e.printStackTrace();
         }
+
+        assertEquals("server1", s.getId());
         
         process2.destroy();
         process3.destroy();
@@ -90,5 +93,78 @@ public class IntegrationTest {
         assertDoesNotThrow(() -> adminConsole.killServer("server2"));
         assertDoesNotThrow(() -> adminConsole.killServer("server3"));
         assertDoesNotThrow(() -> adminConsole.killServer("server1"));
+    }
+    
+    void clientWrite(User user) {
+        for(int i = 0; i < 200; i++) {
+            user.writeToCluster("x", i);
+        }
+    }
+    
+    @Test
+    void singleClientInteractionTest() {
+        Server server1 = new Server("server1");
+        Thread thread = new Thread(server1::start);
+        thread.setDaemon(true);
+        thread.start();
+
+        Process process2;
+        Process process3;
+        try {
+            process2 = startServerProcess("server2", 1, true);
+            process3 = startServerProcess("server3", 2, true);
+        } catch (IOException | InterruptedException e) {
+            e.printStackTrace();
+            fail();
+            return;
+        }
+
+        // Server startup
+        try {
+            synchronized (Thread.currentThread()) {
+                Thread.currentThread().wait(2000);
+            }
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+
+        User user = new User("user1");
+        
+        Integer x = 0;
+        clientWrite(user);
+        x = user.readFromCluster("x");
+        
+        assertEquals(x, 199);
+//        Logger logger1 = server1.getServerState().getLogger();
+//        assertEquals(logger1.getEntry(logger1.getLastIndex()).getValue(), 199);
+
+        try {
+            synchronized (Thread.currentThread()) {
+                Thread.currentThread().wait(1000);
+            }
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+        
+        user.writeToCluster("x", 3);
+        user.writeToCluster("x", 4);
+
+        x = user.readFromCluster("x");
+
+        assertEquals(x, 4);
+        
+        // Waiting a bit before closing
+        try {
+            synchronized (Thread.currentThread()) {
+                Thread.currentThread().wait(2000);
+            }
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+
+        assertEquals("server1", server1.getId());
+
+        process2.destroy();
+        process3.destroy();
     }
 }
