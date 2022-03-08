@@ -2,12 +2,18 @@ package it.polimi.server.manager;
 
 import it.polimi.exceptions.NotLeaderException;
 import it.polimi.networking.ClientResult;
+import it.polimi.networking.RemoteServerInterface;
+import it.polimi.networking.messages.ChangeConfiguration;
 import it.polimi.networking.messages.ReadRequest;
 import it.polimi.networking.messages.WriteRequest;
 import it.polimi.server.Server;
+import it.polimi.server.ServerConfiguration;
+import it.polimi.server.log.ClusterEntry;
+import it.polimi.server.state.State;
 
 import java.rmi.RemoteException;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -137,6 +143,32 @@ public class ClientManager {
             clientCache.put(clientId, response);
         }
         return response.getResult();
+    }
+    
+    public void changeConfiguration(String clientId, Integer clientRequestNumber, Map<String, ServerConfiguration> cNew) throws NotLeaderException {
+        // The caching mechanism is kept to avoid repeated requests
+        Integer latestResponse = getCachedResult(clientId, clientRequestNumber);
+        if(latestResponse != null) {
+            return;
+        }
+
+        if(server.getState().getRole() != State.Role.Leader) {
+            throw new NotLeaderException(server.getId() + " is not a leader.", server.getLeader());
+        }
+
+        // When the leader receives a request to change the configuration from Cold to Cnew, it stores the
+        // configuration for joint consensus (Cold,new in the figure) as a log entry and replicates that
+        // entry using the mechanisms described previously
+        server.getState().getLogger().addClusterEntry(server.getState().getCurrentTerm(), clientRequestNumber, cNew);
+        server.installConfiguration(clientRequestNumber, cNew.get(server.getId()));
+        
+        // todo
+        
+//        ClientResult response = waitResponse(currentRequest);
+//        synchronized (clientCacheSync) {
+//            clientCache.put(clientId, response);
+//        }
+//        response.getResult();
     }
 
     /**

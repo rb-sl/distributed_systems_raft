@@ -22,8 +22,8 @@ public class Follower extends State {
      * Init constructor
      * @param server The server
      */
-    public Follower(Server server) {
-        super(server);
+    public Follower(Server server, Integer maxLogLength) {
+        super(server, maxLogLength);
         this.role = Role.Follower;
         System.out.println(Thread.currentThread().getId() + " [!] Starting as FOLLOWER");
         startTimer();

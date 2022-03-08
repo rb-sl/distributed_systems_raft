@@ -1,15 +1,24 @@
 package it.polimi.client.admin;
 
+import com.google.gson.reflect.TypeToken;
 import it.polimi.client.Client;
+import it.polimi.exceptions.NotLeaderException;
 import it.polimi.networking.RemoteServerInterface;
+import it.polimi.server.ServerConfiguration;
 import it.polimi.utilities.ProcessStarter;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.lang.reflect.Type;
+import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.rmi.ConnectException;
 import java.rmi.NotBoundException;
 import java.rmi.RemoteException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -145,6 +154,28 @@ public class AdminConsole extends Client {
             System.err.println("Cannot connect to " +serverName + ", server is likely not active");
         }
         catch (RemoteException | NotBoundException e) {
+            e.printStackTrace();
+        }
+    }
+    
+    public void sendConfiguration(String fileName) {
+        Map<String, ServerConfiguration> cNew;
+        try {
+            Path storage = Paths.get("./client_configuration/" + fileName + ".json");
+            Type type = new TypeToken<Map<String, ServerConfiguration>>() {}.getType();
+            cNew = gson.fromJson(Files.readString(storage), type);
+        } catch (NoSuchFileException e) {
+            System.err.println("Cannot find configuration for client configuration. Terminating.");
+            return;
+        } catch (IOException e) {
+            e.printStackTrace();
+            return;
+        }
+
+        RemoteServerInterface leader = raft.get("server3");        
+        try {
+            leader.changeConfiguration("admin1", 0, cNew);
+        } catch (RemoteException | NotLeaderException e) {
             e.printStackTrace();
         }
     }

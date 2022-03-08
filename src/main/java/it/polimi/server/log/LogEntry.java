@@ -35,6 +35,10 @@ public class LogEntry implements Serializable {
      */
     private final Integer clientRequestNumber;
 
+    public LogEntry(int term, Integer clientRequestNumber, Integer index) {
+        this(term, null, null, null, clientRequestNumber, index);
+    }
+
     public LogEntry(int term, String varName, Integer value, Integer internalRequestNumber, Integer clientRequestNumber, Integer index) {
         this.term = term;
         this.varName = varName;

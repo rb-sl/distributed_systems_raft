@@ -174,7 +174,7 @@ class LoggerTest {
         Gson gson = new Gson();
         Server server = mock(Server.class);
         State state = mock(State.class);
-        when(server.getServerState()).thenReturn(state);
+        when(server.getState()).thenReturn(state);
         when(state.getCommitIndex()).thenReturn(1);
 
         HashMap<String, Integer> vars = new HashMap<>();

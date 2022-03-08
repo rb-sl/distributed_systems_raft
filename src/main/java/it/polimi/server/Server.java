@@ -40,13 +40,14 @@ public class Server implements RemoteServerInterface {
     /**
      * Configuration for the server
      */
-    private final ServerConfiguration serverConfiguration;
+    @Getter
+    private ServerConfiguration configuration;
     
     /**
      * Server state
      */
     @Getter
-    private State serverState;
+    private State state;
 
     /**
      * Reference to the server's interface
@@ -70,7 +71,6 @@ public class Server implements RemoteServerInterface {
     /**
      * Map of servers in the cluster
      */
-    @Getter
     private final Map<String, RemoteServerInterface> cluster;
 
     /**
@@ -146,37 +146,47 @@ public class Server implements RemoteServerInterface {
         clientManager = new ClientManager(this);
 
         this.id = serverName;
-        this.serverConfiguration = loadConfiguration(serverName);
         
-        if(serverConfiguration == null) {
-            return;
-        }
+        loadConfiguration(false);
+    }
+    
+    private void loadConfiguration(boolean reload) {
+        if(!reload) {
+            this.configuration = readConfiguration(id);
+            if(configuration == null) {
+                return; // todo exception?
+            }
+        }        
 
         try {
-            // Builds the server interface on the given port (or on a random one if null)
-            Integer port = this.serverConfiguration.getPort();
-            if (port == null) {
-                port = 0;
+            if(!reload) {
+                // Builds the server interface on the given port (or on a random one if null)
+                Integer port = this.configuration.getPort();
+                if (port == null) {
+                    port = 0;
+                }
+                this.selfInterface = (RemoteServerInterface) UnicastRemoteObject.exportObject(this, port);
             }
-            this.selfInterface = (RemoteServerInterface) UnicastRemoteObject.exportObject(this, port);
-
+            
             localRegistry = LocateRegistry.getRegistry();
             try {
-                localRegistry.bind(serverName, this.selfInterface);
+                localRegistry.bind(id, this.selfInterface);
             } catch (AlreadyBoundException e) {
-                localRegistry.rebind(serverName, this.selfInterface);
+                localRegistry.rebind(id, this.selfInterface);
             } catch (RemoteException e) {
                 System.err.println("Creating local RMI registry");
-                Integer localPort = this.serverConfiguration.getRegistryPort();
+                Integer localPort = this.configuration.getRegistryPort();
                 if (localPort == null) {
                     localPort = 1099;
                 }
                 localRegistry = LocateRegistry.createRegistry(localPort);
-                localRegistry.bind(serverName, this.selfInterface);
+                localRegistry.bind(id, this.selfInterface);
             }
 
+            // (Re)creates the cluster
             Registry registry;
-            for (ServerConfiguration other : this.serverConfiguration.getCluster()) {
+            cluster.clear();
+            for (ServerConfiguration other : this.configuration.getCluster()) {
                 InetAddress otherRegistryIP = other.getRegistryIP();
                 Integer otherRegistryPort = other.getRegistryPort();
 
@@ -190,7 +200,7 @@ public class Server implements RemoteServerInterface {
 
                     RemoteServerInterface peer = (RemoteServerInterface) registry.lookup(other.getName());
                     cluster.put(other.getName(), peer);
-                    peer.updateCluster(serverName, selfInterface);
+                    peer.notifyAvailability(id, selfInterface);
                 } catch (RemoteException | NotBoundException e) {
                     System.err.println("Server '" + other.getName() + "' at " + otherRegistryIP + ":" + otherRegistryPort + " not available");
                 }
@@ -206,7 +216,7 @@ public class Server implements RemoteServerInterface {
      * @param serverName The server name
      * @return A ServerConfiguration objects containing all configuration parameters
      */
-    private ServerConfiguration loadConfiguration(String serverName) {
+    private ServerConfiguration readConfiguration(String serverName) {
         try {
             Path storage = Paths.get("./configuration/" + serverName + ".json");
             Type type = new TypeToken<ServerConfiguration>() {}.getType();
@@ -219,12 +229,23 @@ public class Server implements RemoteServerInterface {
             return null;
         }
     }
+    
+    private void writeConfiguration(ServerConfiguration configuration) {
+        try {
+            Path storage = Paths.get("./configuration/" + id + ".json");
+            String toWrite = gson.toJson(configuration);
+            Files.deleteIfExists(storage);
+            Files.write(storage, toWrite.getBytes());            
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
 
     /**
      * Main loop, executes the server
      */
     public void start() {
-        this.serverState = new Follower(this);
+        this.state = new Follower(this, this.configuration.getMaxLogLength());
         System.err.println("Server '" + this.id + "' ready");
         
         // Start processing messages in the queue
@@ -245,7 +266,7 @@ public class Server implements RemoteServerInterface {
                             Integer last = lastReceipt.get(result.getOriginId());
                             if (outgoingRequests.containsKey(result.getInternalRequestNumber())) {
                                 Message.Type type = outgoingRequests.remove(result.getInternalRequestNumber());
-                                this.serverState.processResult(type, result);
+                                this.state.processResult(type, result);
                             } else if(result.getInternalRequestNumber() > last) {
                                 // If the request was not added yet it is re-enqueued
                                 enqueue(result);
@@ -256,16 +277,16 @@ public class Server implements RemoteServerInterface {
                         }
                     }
                     case StateTransition -> {
-                        if (this.serverState != null) {
-                            this.serverState.stopTimers();
+                        if (this.state != null) {
+                            this.state.stopTimers();
                         }
                         if (this.electionManager != null) {
                             this.electionManager.interruptElection();
                         }
                         switch (((StateTransition) message).getState()) {
-                            case Follower -> this.updateState(new Follower(this.serverState));
-                            case Leader -> this.updateState(new Leader(this.serverState));
-                            case Candidate -> this.updateState(new Candidate(this.serverState));
+                            case Follower -> this.updateState(new Follower(this.state));
+                            case Leader -> this.updateState(new Leader(this.state));
+                            case Candidate -> this.updateState(new Candidate(this.state));
                         }
                     }
                     case StartElection -> {
@@ -279,14 +300,14 @@ public class Server implements RemoteServerInterface {
                     }
                     case ReadRequest -> {
                         ReadRequest readRequest = (ReadRequest) message;
-                        if(this.serverState.getRole() == State.Role.Leader) {
+                        if(this.state.getRole() == State.Role.Leader) {
                             // [...] a leader must check whether it has been deposed before processing a read-only 
                             // request [...] by having the leader exchange heartbeat messages with a majority of the 
                             // cluster before responding
-                            this.serverState.waitForConfirmation();
+                            this.state.waitForConfirmation();
                             
                             clientManager.clientRequestComplete(readRequest.getInternalRequestNumber(), readRequest.getClientRequestNumber(), 
-                                    this.serverState.getVariable(readRequest.getVariable()));
+                                    this.state.getVariable(readRequest.getVariable()));
                         }
                         else {
                             clientManager.clientRequestError(readRequest.getInternalRequestNumber(), readRequest.getClientRequestNumber(), 
@@ -295,19 +316,34 @@ public class Server implements RemoteServerInterface {
                     }
                     case WriteRequest -> {
                         WriteRequest writeRequest = (WriteRequest) message;
-                        if(this.serverState.getRole() == State.Role.Leader) {
+                        if(this.state.getRole() == State.Role.Leader) {
                             // If command received from client: append entry to local log,
                             // respond after entry applied to state machine (§5.3)
-                            serverState.getLogger().addEntry(serverState.getCurrentTerm(), writeRequest.getVariable(), 
+                            state.getLogger().addEntry(state.getCurrentTerm(), writeRequest.getVariable(), 
                                     writeRequest.getValue(), message.getInternalRequestNumber(), writeRequest.getClientRequestNumber());
-                            serverState.logAdded();
+                            state.logAdded();
                         }
                         else {
                             clientManager.clientRequestError(writeRequest.getInternalRequestNumber(), writeRequest.getClientRequestNumber(), 
                                     ClientResult.Status.NOTLEADER);
                         }
                     }
-                    case UpdateIndex -> this.serverState.setCommitIndex(((UpdateIndex) message).getCommitIndex());
+                    case UpdateIndex -> this.state.setCommitIndex(((UpdateIndex) message).getCommitIndex());
+                    case ChangeConfiguration -> {
+                        ChangeConfiguration changeRequest = (ChangeConfiguration) message;
+//                        if(this.state.getRole() == State.Role.Leader) {
+                        // you can't be completely specific in a to-do note
+                        // Hold my beer
+                        // todo something
+                        installConfiguration(changeRequest.getInternalRequestNumber(), changeRequest.getConfiguration());
+//                        if(this.state.getRole() == State.Role.Leader) {
+//                            clientManager.clientRequestComplete(changeRequest.getInternalRequestNumber(), changeRequest.getClientRequestNumber(), null);
+//                        }
+//                        else {
+//                            clientManager.clientRequestError(changeRequest.getInternalRequestNumber(), changeRequest.getClientRequestNumber(),
+//                                    ClientResult.Status.NOTLEADER);
+//                        }
+                    }
                     case Stop -> {
                         System.err.println("Server " + id + " shutting down");
                         throw new ServerStoppedException();
@@ -440,9 +476,9 @@ public class Server implements RemoteServerInterface {
 
         // Stops [If election timeout elapses without receiving AppendEntries RPC from current leader or granting
         // vote to candidate: convert to candidate]
-        this.serverState.receivedAppend(message.getTerm());
+        this.state.receivedAppend(message.getTerm());
 
-        Integer currentTerm = this.serverState.getCurrentTerm();
+        Integer currentTerm = this.state.getCurrentTerm();
 
         // 1. Reply false if term < currentTerm (§5.1)
         if(currentTerm != null && message.getTerm() < currentTerm) {
@@ -452,7 +488,7 @@ public class Server implements RemoteServerInterface {
 
         // 2. Reply false if log does not contain an entry at prevLogIndex
         // whose term matches prevLogTerm (§5.3)
-        if(message.getPrevLogTerm() != null && !message.getPrevLogTerm().equals(this.serverState.getLogger().termAtPosition(message.getPrevLogIndex()))) {
+        if(message.getPrevLogTerm() != null && !message.getPrevLogTerm().equals(this.state.getLogger().termAtPosition(message.getPrevLogIndex()))) {
             System.out.println("AppendEntries ignored: no log entry at prevLogIndex = " + message.getPrevLogIndex());
             return new Result(this.id, Message.Type.AppendEntry, message.getInternalRequestNumber(), currentTerm, false);
         }
@@ -461,16 +497,16 @@ public class Server implements RemoteServerInterface {
             // 3. If an existing entry conflicts with a new one (same index but different terms),
             // delete the existing entry and all that follow it (§5.3)
             for (Map.Entry<Integer, LogEntry> entry : message.getNewEntries().entrySet()) {
-                if (this.serverState.getLogger().containConflict(entry.getKey(), entry.getValue().getTerm())) {
-                    this.serverState.getLogger().deleteFrom(entry.getKey());
+                if (this.state.getLogger().containConflict(entry.getKey(), entry.getValue().getTerm())) {
+                    this.state.getLogger().deleteFrom(entry.getKey());
                 }
             }
 
             // 4. Append any new entries not already in the log
-            this.serverState.getLogger().appendNewEntries(message.getNewEntries());
+            this.state.getLogger().appendNewEntries(message.getNewEntries());
         }
 
-        Integer commitIndex = this.serverState.getCommitIndex();
+        Integer commitIndex = this.state.getCommitIndex();
         // 5. If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry)
         if(message.getLeaderCommit() != null && (commitIndex == null || message.getLeaderCommit() > commitIndex)) {
             int newIndex;
@@ -479,7 +515,7 @@ public class Server implements RemoteServerInterface {
             } catch(NoSuchElementException | NullPointerException e) {
                 newIndex = message.getLeaderCommit();
             }
-            this.serverState.setCommitIndex(newIndex);
+            this.state.setCommitIndex(newIndex);
         }
 
         return new Result(this.id, Message.Type.AppendEntry, message.getInternalRequestNumber(), currentTerm, true);
@@ -500,9 +536,9 @@ public class Server implements RemoteServerInterface {
         String candidateId = message.getCandidateId();
         Integer lastLogIndex = message.getLastLogIndex();
 
-        this.serverState.convertOnNextTerm(term);
+        this.state.convertOnNextTerm(term);
 
-        int currentTerm = serverState.getCurrentTerm();
+        int currentTerm = state.getCurrentTerm();
 
         // [...] removed servers (those not in Cnew) can disrupt the cluster. [...]
         // To prevent this problem, servers disregard RequestVote RPCs when they believe a current leader exists.
@@ -520,16 +556,16 @@ public class Server implements RemoteServerInterface {
 
         // 2. If votedFor is null or candidateId, and candidate’s log is at
         //    least as up-to-date as receiver’s log, grant vote (§5.2, §5.4)
-        String votedFor = serverState.getVotedFor();
+        String votedFor = state.getVotedFor();
         if((votedFor == null || votedFor.equals(candidateId))
-                && ((lastLogIndex == null && serverState.getLastLogIndex() == null)
+                && ((lastLogIndex == null && state.getLastLogIndex() == null)
                     || (lastLogIndex != null
-                        && (serverState.getLastLogIndex() == null || lastLogIndex >= serverState.getLastLogIndex())))) {
-            serverState.setVotedFor(candidateId);
+                        && (state.getLastLogIndex() == null || lastLogIndex >= state.getLastLogIndex())))) {
+            state.setVotedFor(candidateId);
 
             // Stops [If election timeout elapses without receiving AppendEntries RPC from current leader or granting
             // vote to candidate: convert to candidate]
-            this.serverState.receivedMsg(term);
+            this.state.receivedMsg(term);
 
             System.out.println(Thread.currentThread().getId() + " [Term " + currentTerm + "] Voted for " + candidateId);
             return new Result(this.id, Message.Type.RequestVote, message.getInternalRequestNumber(), currentTerm, true);
@@ -566,15 +602,15 @@ public class Server implements RemoteServerInterface {
     public Result installSnapshot(InstallSnapshot message) {
         // Stops [If election timeout elapses without receiving AppendEntries RPC from current leader or granting
         // vote to candidate: convert to candidate], should count as appendEntries for this matter
-        this.serverState.receivedMsg(message.getTerm());
+        this.state.receivedMsg(message.getTerm());
         
         // 1. Reply immediately if term < currentTerm
-        if(message.getTerm() < this.serverState.getCurrentTerm()) {
-            return new Result(this.id, Message.Type.InstallSnapshot, message.getInternalRequestNumber(), this.serverState.getCurrentTerm(), false);
+        if(message.getTerm() < this.state.getCurrentTerm()) {
+            return new Result(this.id, Message.Type.InstallSnapshot, message.getInternalRequestNumber(), this.state.getCurrentTerm(), false);
         }
         
         // 2. Create new snapshot file if first chunk (offset is 0)
-        Path snapshotPath = Paths.get(this.serverState.getLogger().getStorage() + "_" + message.getLastIncludedIndex() + ".temp");
+        Path snapshotPath = Paths.get(this.state.getLogger().getStorage() + "_" + message.getLastIncludedIndex() + ".temp");
         RandomAccessFile snapshotTempFile = null;
         if(message.getOffset() == 0) {
             try {
@@ -582,7 +618,7 @@ public class Server implements RemoteServerInterface {
                 snapshotTempFile = new RandomAccessFile(Files.createFile(snapshotPath).toFile(), "rw");
             } catch (IOException e) {
                 e.printStackTrace();
-                return new Result(this.id, Message.Type.InstallSnapshot, message.getInternalRequestNumber(), this.serverState.getCurrentTerm(), false);
+                return new Result(this.id, Message.Type.InstallSnapshot, message.getInternalRequestNumber(), this.state.getCurrentTerm(), false);
             }
         }
         else {
@@ -590,7 +626,7 @@ public class Server implements RemoteServerInterface {
                 snapshotTempFile = new RandomAccessFile(snapshotPath.toString(), "rw");
             } catch (FileNotFoundException e) {
                 e.printStackTrace();
-                return new Result(this.id, Message.Type.InstallSnapshot, message.getInternalRequestNumber(), this.serverState.getCurrentTerm(), false);
+                return new Result(this.id, Message.Type.InstallSnapshot, message.getInternalRequestNumber(), this.state.getCurrentTerm(), false);
             }
         }
         
@@ -609,13 +645,13 @@ public class Server implements RemoteServerInterface {
 
         // 4. Reply and wait for more data chunks if done is false
         if(!message.isDone()) {
-            return new Result(this.id, Message.Type.InstallSnapshot, message.getInternalRequestNumber(), this.serverState.getCurrentTerm(), true);
+            return new Result(this.id, Message.Type.InstallSnapshot, message.getInternalRequestNumber(), this.state.getCurrentTerm(), true);
         }
         
         // 5. Save snapshot file, discard any existing or partial snapshot with a smaller index
         try {
-            Files.deleteIfExists(this.serverState.getLogger().getStorage());
-            Files.copy(snapshotPath, this.serverState.getLogger().getStorage());
+            Files.deleteIfExists(this.state.getLogger().getStorage());
+            Files.copy(snapshotPath, this.state.getLogger().getStorage());
             Files.deleteIfExists(snapshotPath);
         } catch (IOException e) {
             e.printStackTrace();
@@ -623,10 +659,10 @@ public class Server implements RemoteServerInterface {
         
         // 6. If existing log entry has same index and term as snapshot’s last included entry, retain log entries following it and reply
         try {
-            LogEntry lastSnapshotEntry = this.getServerState().getLogger().getEntry(message.getLastIncludedIndex());
+            LogEntry lastSnapshotEntry = this.getState().getLogger().getEntry(message.getLastIncludedIndex());
             if (lastSnapshotEntry != null && lastSnapshotEntry.getTerm() == message.getLastIncludedTerm()) {
-                this.getServerState().getLogger().clearUpToIndex(message.getLastIncludedIndex(), false);
-                return new Result(this.id, Message.Type.InstallSnapshot, message.getInternalRequestNumber(), this.serverState.getCurrentTerm(), true);
+                this.getState().getLogger().clearUpToIndex(message.getLastIncludedIndex(), false);
+                return new Result(this.id, Message.Type.InstallSnapshot, message.getInternalRequestNumber(), this.state.getCurrentTerm(), true);
             }
         } catch(NoSuchElementException e) {
             // The last element did not exist, so continue
@@ -635,14 +671,14 @@ public class Server implements RemoteServerInterface {
         }
         
         // 7. Discard the entire log
-        this.getServerState().getLogger().clearEntries();
+        this.getState().getLogger().clearEntries();
         
         // 8. Reset state machine using snapshot contents (and load snapshot’s cluster configuration)
-        this.getServerState().restoreVars();
+        this.getState().restoreVars();
         
-        System.out.println("InstallSnapshot complete: updated variables = " + getServerState().getVariables());
+        System.out.println("InstallSnapshot complete: updated variables = " + getState().getVariables());
         
-        return new Result(this.id, Message.Type.InstallSnapshot, message.getInternalRequestNumber(), this.serverState.getCurrentTerm(), true);
+        return new Result(this.id, Message.Type.InstallSnapshot, message.getInternalRequestNumber(), this.state.getCurrentTerm(), true);
     }
 
     /**
@@ -665,12 +701,26 @@ public class Server implements RemoteServerInterface {
      * {@inheritDoc}
      */
     @Override
-    public synchronized void updateCluster(String serverName, RemoteServerInterface serverInterface) { // todo change to object sync
+    public synchronized void notifyAvailability(String serverName, RemoteServerInterface serverInterface) {
         this.cluster.put(serverName, serverInterface);
-        if(this.serverState != null && this.serverState.getRole() == State.Role.Leader) {
-            this.keepAliveManager.startKeepAlive(serverName, serverInterface); // todo might not have correct cluster
-            this.serverState.startReplication(serverName, serverInterface);
+        if(this.state != null && this.state.getRole() == State.Role.Leader) {
+            this.keepAliveManager.startKeepAlive(serverName, serverInterface);
+            this.state.startReplication(serverName, serverInterface);
         }
+    }
+
+    @Override
+    public void installConfiguration(Map<String, ServerConfiguration> newConfiguration) throws RemoteException {
+        enqueue(new ChangeConfiguration(newConfiguration.get(id)));
+    }
+
+    public Result installConfiguration(Integer internalRequestNumber, ServerConfiguration configuration) {
+        this.configuration = configuration;        
+        writeConfiguration(configuration);
+        
+        loadConfiguration(true);
+
+        return new Result(this.id, Message.Type.ChangeConfiguration, internalRequestNumber, this.state.getCurrentTerm(), true);
     }
 
     /**
@@ -693,6 +743,14 @@ public class Server implements RemoteServerInterface {
      * {@inheritDoc}
      */
     @Override
+    public void changeConfiguration(String clientId, Integer clientRequestNumber, Map<String, ServerConfiguration> newConfigurations) throws RemoteException, NotLeaderException {
+        clientManager.changeConfiguration(clientId, clientRequestNumber, newConfigurations);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
     public void stop() {
         enqueue(new Stop());
     }
@@ -702,7 +760,11 @@ public class Server implements RemoteServerInterface {
      * @param next The next state
      */
     public synchronized void updateState(State next) {
-        this.serverState = next;
+        this.state = next;
+    }
+
+    public Map<String, RemoteServerInterface> getCluster() {
+        return new HashMap<>(cluster);
     }
 
     /**
@@ -720,7 +782,7 @@ public class Server implements RemoteServerInterface {
     @Override
     public String toString() {
         return "{\n" +
-                "'serverState':" + serverState.toString() +
+                "'serverState':" + state.toString() +
                 "',\n   'cluster':'" + cluster.toString() +
                 "',\n   'id':'" + id +
                 "'\n}";

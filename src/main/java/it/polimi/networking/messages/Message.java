@@ -14,7 +14,8 @@ public abstract class Message implements Serializable {
      * Message types
      */
     public enum Type {
-        AppendEntry, RequestVote, Result, StateTransition, StartElection, WriteRequest, ReadRequest, UpdateIndex, InstallSnapshot, Stop;
+        AppendEntry, RequestVote, Result, StateTransition, StartElection, WriteRequest,
+        ReadRequest, UpdateIndex, InstallSnapshot, Stop, ChangeConfiguration;
     }
 
     /**

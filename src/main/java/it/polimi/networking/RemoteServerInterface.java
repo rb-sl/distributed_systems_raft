@@ -2,10 +2,13 @@ package it.polimi.networking;
 
 import it.polimi.exceptions.NotLeaderException;
 import it.polimi.networking.messages.Result;
+import it.polimi.server.ServerConfiguration;
 import it.polimi.server.log.LogEntry;
 
 import java.rmi.Remote;
 import java.rmi.RemoteException;
+import java.util.List;
+import java.util.Map;
 import java.util.SortedMap;
 
 public interface RemoteServerInterface extends Remote {
@@ -81,7 +84,10 @@ public interface RemoteServerInterface extends Remote {
          * @param serverInterface RemoteServerInterface object
          * @throws RemoteException RMI exception
          */
-        void updateCluster(String serverName, RemoteServerInterface serverInterface) throws RemoteException;
+        void notifyAvailability(String serverName, RemoteServerInterface serverInterface) throws RemoteException;
+        
+        
+        void installConfiguration(Map<String, ServerConfiguration> cNew) throws RemoteException;
 
         // Methods called by clients
         /**
@@ -104,6 +110,8 @@ public interface RemoteServerInterface extends Remote {
          * @throws NotLeaderException When the queried server is not the leader
          */
         Integer write(String clientId, Integer clientRequestNumber, String variable, Integer value) throws RemoteException, NotLeaderException;
+        
+        void changeConfiguration(String clientId, Integer clientRequestNumber, Map<String, ServerConfiguration> newConfigurations) throws RemoteException, NotLeaderException;
 
         /**
          * Stops the server execution

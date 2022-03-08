@@ -73,9 +73,9 @@ public class KeepAliveManager {
      * @param serverInterface The remote server interface to keep alive
      */
     private void keepAlive(String serverId, RemoteServerInterface serverInterface) {
-        Integer term = this.server.getServerState().getCurrentTerm();
+        Integer term = this.server.getState().getCurrentTerm();
         String originId = this.server.getId();
-        State serverState = server.getServerState();
+        State serverState = server.getState();
 
         Integer receipt;
         while(!Thread.currentThread().isInterrupted()) {

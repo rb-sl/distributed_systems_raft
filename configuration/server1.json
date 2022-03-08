@@ -1,13 +1,1 @@
-{
-  "name": "server1",
-  "cluster": [
-    {
-      "name": "server2"
-    },
-    {
-      "name": "server3",
-      "registryIP": "127.0.0.1",
-      "registryPort": "1099"
-    }
-  ]
-}
+{"name":"server1","cluster":[{"name":"server2"},{"name":"server3","registryIP":"127.0.0.1","registryPort":1099},{"name":"server4"}],"maxLogLength":20}

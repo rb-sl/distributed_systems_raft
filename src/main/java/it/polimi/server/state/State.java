@@ -114,11 +114,17 @@ public abstract class State {
     private static Boolean elapsedMinTimeout;
 
     /**
+     * Size of maximum log before snapshotting
+     */
+    private static Integer maxLogLength;
+
+    /**
      * Init constructor
      * @param server The server
      */
-    public State(Server server) {
+    public State(Server server, Integer maxLogLength) {
         this(server, null, null, new Logger(server), null, null);
+        State.maxLogLength = maxLogLength;
     }
 
     /**
@@ -137,7 +143,7 @@ public abstract class State {
         this.logger = logger;
         commitIndex = localCommitIndex;
         this.lastApplied = lastApplied;
-
+        
         restoreVars();
         elapsedMinTimeout = false;
     }
@@ -227,8 +233,6 @@ public abstract class State {
         }
     }
 
-    private static int nsnap = 0;
-
     /**
      * Apply the entry to the machine state
      * @param entry The entry
@@ -250,10 +254,9 @@ public abstract class State {
         synchronized (variableSync) {
             this.variables.put(key, val);
         }
-        nsnap++;
-        if(nsnap == 20) {
-            logger.takeSnapshot(); // todo bring into configuration
-            nsnap = 0;
+        
+        if(logger.getLength() == 20) {
+            logger.takeSnapshot();
         }
     }
     

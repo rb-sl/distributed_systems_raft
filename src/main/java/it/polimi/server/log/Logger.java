@@ -3,6 +3,7 @@ package it.polimi.server.log;
 import com.google.gson.Gson;
 import it.polimi.exceptions.IndexAlreadyDiscardedException;
 import it.polimi.server.Server;
+import it.polimi.server.ServerConfiguration;
 import lombok.Getter;
 
 import java.io.IOException;
@@ -112,7 +113,13 @@ public class Logger {
      */
     public void appendNewEntries(SortedMap<Integer, LogEntry> newEntries) {
         synchronized (entriesSync) {
-            newEntries.forEach((key, log) -> entries.putIfAbsent(key, log));
+            newEntries.forEach((key, log) -> {
+                entries.putIfAbsent(key, log);
+                
+                if(log instanceof ClusterEntry entry) {
+                    server.installConfiguration(entry.getInternalRequestNumber(), entry.getConfiguration().get(server.getId()));
+                }
+            });
             printLog();
         }
     }
@@ -120,14 +127,19 @@ public class Logger {
     /**
      * Outputs the current log
      */
-    public void printLog() {
-        System.out.println("---Log---------------");
+    public void printLog() {        
         synchronized (entriesSync) {
+            System.out.println("---Log---------------");
             for (Map.Entry<Integer, LogEntry> entry : entries.entrySet()) {
-                System.out.println(entry.getKey() + ": [Term " + entry.getValue().getTerm() + "] " + entry.getValue().getVarName() + " ← " + entry.getValue().getValue());
+                if(entry.getValue() instanceof ClusterEntry clusterEntry) {
+                    System.out.println(entry.getKey() + ": Cluster change " + clusterEntry.getConfiguration());
+                }
+                else {
+                    System.out.println(entry.getKey() + ": [Term " + entry.getValue().getTerm() + "] " + entry.getValue().getVarName() + " ← " + entry.getValue().getValue());
+                }
             }
+            System.out.println("---------------------");
         }
-        System.out.println("---------------------");
     }
 
     /**
@@ -204,13 +216,21 @@ public class Logger {
             printLog();
         }
     }
+    
+    public void addClusterEntry(int term, Integer clientRequestNumber, Map<String, ServerConfiguration> configuration) {
+        synchronized (entriesSync) {
+            entries.put(nextKey, new ClusterEntry(term, clientRequestNumber, configuration, nextKey));
+            nextKey++;
+            printLog();
+        }
+    }
 
     /**
      * Creates and writes a snapshot of entries, that are then deleted
      */
     public void takeSnapshot() {
-        Integer commitIndex = this.server.getServerState().getCommitIndex();
-        lastSnapshot = new Snapshot(this.server.getServerState().getVariables(), commitIndex, termAtPosition(commitIndex));
+        Integer commitIndex = this.server.getState().getCommitIndex();
+        lastSnapshot = new Snapshot(this.server.getState().getVariables(), commitIndex, termAtPosition(commitIndex));
         try {
             writeSnapshot(gson.toJson(lastSnapshot));
         } catch (IOException e) {
@@ -261,6 +281,12 @@ public class Logger {
     public void clearEntries() {
         synchronized (entriesSync) {
             entries.clear();
+        }
+    }
+
+    public int getLength() {
+        synchronized (entriesSync) {
+            return entries.size();
         }
     }
 }

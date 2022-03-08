@@ -162,7 +162,7 @@ public class Leader extends State {
     /**
      * {@inheritDoc}
      */
-    public void startReplication(String serverId, RemoteServerInterface serverInterface) {
+    public void startReplication(String serverId, RemoteServerInterface serverInterface) { //todo too many threads?
         Thread thread;
 
         thread = replicationThreads.get(serverId);
