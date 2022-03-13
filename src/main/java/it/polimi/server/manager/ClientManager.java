@@ -162,6 +162,8 @@ public class ClientManager {
         server.getState().getLogger().addClusterEntry(server.getState().getCurrentTerm(), clientRequestNumber, cNew);
         server.installConfiguration(clientRequestNumber, cNew.get(server.getId()));
         
+        server.getState().logAdded();
+        
         // todo
         
 //        ClientResult response = waitResponse(currentRequest);

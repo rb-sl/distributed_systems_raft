@@ -38,6 +38,11 @@ public class Leader extends State {
     private static Map<String, Thread> replicationThreads;
 
     /**
+     * Map of server interfaces at thread start
+     */
+    private static final Map<String, RemoteServerInterface> activeCluster = new HashMap<>();
+
+    /**
      * List of requests not yet completed
      */
     private final static List<Integer> pendingRequests = new ArrayList<>();
@@ -162,19 +167,25 @@ public class Leader extends State {
     /**
      * {@inheritDoc}
      */
-    public void startReplication(String serverId, RemoteServerInterface serverInterface) { //todo too many threads?
+    public void startReplication(String serverId, RemoteServerInterface serverInterface) {
         Thread thread;
 
         thread = replicationThreads.get(serverId);
         if(thread != null && thread.isAlive()) {
+            if(serverInterface.equals(activeCluster.get(serverId))) {
+                // The replication is active on the correct interface
+                return;
+            }
             thread.interrupt();
             System.out.println(Thread.currentThread().getId() + " [Replication] Thread " + thread.getId() + " stopped, starting new one for " + serverId);
         }
 
         thread = new Thread(() -> replicate(serverId, serverInterface));
         thread.setDaemon(true);
+       
         replicationThreads.put(serverId, thread);
-        thread.start();
+        activeCluster.put(serverId, serverInterface);
+        thread.start();        
     }
 
     /**
@@ -392,5 +403,15 @@ public class Leader extends State {
         synchronized (nextIndexSync) {
             nextIndexSync.notifyAll();
         }
+    }
+
+    /**
+     * Stops the messages
+     */
+    public void stopReplication() {
+        for(Thread thread: replicationThreads.values()) {
+            thread.interrupt();
+        }
+        replicationThreads.clear();
     }
 }

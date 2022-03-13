@@ -7,6 +7,7 @@ import java.net.InetAddress;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Class used to read server configuration files
@@ -52,5 +53,28 @@ public class ServerConfiguration implements Serializable {
         newCluster.addAll(conf1.cluster);
         newCluster.addAll(conf2.cluster);
         return new ServerConfiguration(conf2.name, conf2.port, conf2.registryIP, conf2.registryPort, newCluster, conf2.maxLogLength);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (o == null) return false;
+        if (this == o) return true;        
+        if(getClass() != o.getClass()) {
+            if(o.getClass() == String.class) {
+                return this.name.equals(o);
+            }
+            else {
+                return false;
+            }
+        }
+        ServerConfiguration that = (ServerConfiguration) o;
+        return name.equals(that.name) && Objects.equals(port, that.port) && Objects.equals(registryIP, that.registryIP) 
+                && Objects.equals(registryPort, that.registryPort) && Objects.equals(cluster, that.cluster) 
+                && Objects.equals(maxLogLength, that.maxLogLength);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(name, port, registryIP, registryPort, cluster, maxLogLength);
     }
 }

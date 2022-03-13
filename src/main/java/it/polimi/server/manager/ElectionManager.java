@@ -17,10 +17,6 @@ public class ElectionManager {
      * The owner
      */
     private final Server server;
-    /**
-     * The servers to contact
-     */
-    private final Map<String, RemoteServerInterface> activeCluster;
 
     /**
      * Current term
@@ -45,9 +41,8 @@ public class ElectionManager {
      */
     private final List<Thread> electionThreads;
 
-    public ElectionManager(Server server, Map<String, RemoteServerInterface> cluster, int term, Integer lastLogIndex, Integer lastLogTerm) {
+    public ElectionManager(Server server, int term, Integer lastLogIndex, Integer lastLogTerm) {
         this.server = server;
-        this.activeCluster = cluster;
         this.electionThreads = new ArrayList<>();
 
         this.term = term;
@@ -69,7 +64,7 @@ public class ElectionManager {
     public void election() {
         Thread thread;
 
-        for (Map.Entry<String, RemoteServerInterface> entry : this.activeCluster.entrySet()) {
+        for (Map.Entry<String, RemoteServerInterface> entry : this.server.getCluster().entrySet()) {
             if(!entry.getKey().equals(server.getId())) {                
                 thread = new Thread(() -> askForVote(entry.getKey(), entry.getValue(), this.term, this.lastLogIndex, this.lastLogTerm));
                 thread.setDaemon(true);

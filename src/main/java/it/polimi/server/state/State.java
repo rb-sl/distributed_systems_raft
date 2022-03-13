@@ -275,6 +275,7 @@ public abstract class State {
         if(currentTerm == null || term > currentTerm) {
             currentTerm = term;
             votedFor = null;
+            
             this.server.enqueue(new StateTransition(Role.Follower));
         }
     }
@@ -371,6 +372,8 @@ public abstract class State {
      * @param serverInterface The target's interface
      */
     public void startReplication(String serverId, RemoteServerInterface serverInterface) {}
+    
+    public void stopReplication() {}
 
     /**
      * Notifies the addition of a log

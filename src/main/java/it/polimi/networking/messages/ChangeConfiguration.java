@@ -11,7 +11,7 @@ import java.util.List;
 @Getter
 public class ChangeConfiguration extends Message {
     /**
-     * Old server configuration
+     * New server configuration
      */
     private final ServerConfiguration configuration;
 

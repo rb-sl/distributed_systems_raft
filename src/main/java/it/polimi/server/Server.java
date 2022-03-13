@@ -71,7 +71,11 @@ public class Server implements RemoteServerInterface {
     /**
      * Map of servers in the cluster
      */
-    private final Map<String, RemoteServerInterface> cluster;
+    private static final Map<String, RemoteServerInterface> cluster = new HashMap<>();
+    /**
+     * Cluster synchronization
+     */
+    private static final Object clusterSync = new Object();
 
     /**
      * The queue used to serialize message
@@ -123,7 +127,7 @@ public class Server implements RemoteServerInterface {
     /**
      * Object that manages keepalive process
      */
-    private KeepAliveManager keepAliveManager;
+    private KeepAliveManager keepAliveManager; // todo static?
 
     private final Gson gson = new Gson();
 
@@ -139,7 +143,6 @@ public class Server implements RemoteServerInterface {
      * </ul>
      */
     public Server(String serverName) {
-        this.cluster = new HashMap<>();
         outgoingRequests = new HashMap<>();
         lastReceipt = new HashMap<>();
 
@@ -185,7 +188,9 @@ public class Server implements RemoteServerInterface {
 
             // (Re)creates the cluster
             Registry registry;
-            cluster.clear();
+            synchronized (clusterSync) {
+                cluster.clear();
+            }
             for (ServerConfiguration other : this.configuration.getCluster()) {
                 InetAddress otherRegistryIP = other.getRegistryIP();
                 Integer otherRegistryPort = other.getRegistryPort();
@@ -199,8 +204,10 @@ public class Server implements RemoteServerInterface {
                     }
 
                     RemoteServerInterface peer = (RemoteServerInterface) registry.lookup(other.getName());
-                    cluster.put(other.getName(), peer);
-                    peer.notifyAvailability(id, selfInterface);
+                    synchronized (clusterSync) {
+                        cluster.put(other.getName(), peer);
+                    }
+                    peer.notifyAvailability(id, this);
                 } catch (RemoteException | NotBoundException e) {
                     System.err.println("Server '" + other.getName() + "' at " + otherRegistryIP + ":" + otherRegistryPort + " not available");
                 }
@@ -255,7 +262,16 @@ public class Server implements RemoteServerInterface {
             try {
                 message = messageQueue.take();
                 result = null;
+                
+                if(message.getOrigin() != null && !cluster.containsValue(message.getOrigin())) {
+                    // A message from a server outside the cluster is disregarded
+                    continue;
+                }
 
+//                if(message.getTerm() != null) {
+//                    this.state.convertOnNextTerm(message.getTerm());
+//                }
+                
                 switch (message.getMessageType()) {
                     case AppendEntry -> result = appendEntries((AppendEntries) message);
                     case RequestVote -> result = requestVote((RequestVote) message);
@@ -276,9 +292,14 @@ public class Server implements RemoteServerInterface {
                             }
                         }
                     }
-                    case StateTransition -> {
+                    case StateTransition -> {                        
                         if (this.state != null) {
                             this.state.stopTimers();
+                            
+                            if(this.state.getRole() == State.Role.Leader) {
+                                this.stopKeepAlive();
+                                this.state.stopReplication();
+                            }
                         }
                         if (this.electionManager != null) {
                             this.electionManager.interruptElection();
@@ -294,8 +315,9 @@ public class Server implements RemoteServerInterface {
                             electionManager.interruptElection();
                         }
                         StartElection startElection = (StartElection) message;
-                        electionManager = new ElectionManager(this, cluster,
-                                startElection.getTerm(), startElection.getLastLogIndex(), startElection.getLastLogTerm());
+                        
+                        electionManager = new ElectionManager(this, startElection.getTerm(), 
+                                startElection.getLastLogIndex(), startElection.getLastLogTerm());
                         electionManager.startElection();
                     }
                     case ReadRequest -> {
@@ -336,6 +358,8 @@ public class Server implements RemoteServerInterface {
                         // Hold my beer
                         // todo something
                         installConfiguration(changeRequest.getInternalRequestNumber(), changeRequest.getConfiguration());
+//                        state.logAdded();
+                        
 //                        if(this.state.getRole() == State.Role.Leader) {
 //                            clientManager.clientRequestComplete(changeRequest.getInternalRequestNumber(), changeRequest.getClientRequestNumber(), null);
 //                        }
@@ -343,6 +367,10 @@ public class Server implements RemoteServerInterface {
 //                            clientManager.clientRequestError(changeRequest.getInternalRequestNumber(), changeRequest.getClientRequestNumber(),
 //                                    ClientResult.Status.NOTLEADER);
 //                        }
+                    }
+                    case ServerAvailable -> {
+                        ServerAvailable available = (ServerAvailable) message;
+                        serverAvailable(available);
                     }
                     case Stop -> {
                         System.err.println("Server " + id + " shutting down");
@@ -357,9 +385,11 @@ public class Server implements RemoteServerInterface {
                     message.getOrigin().reply(result);
                 }
             } catch (InterruptedException | ServerStoppedException e) {
-                if(this.keepAliveManager != null) {
-                    this.keepAliveManager.stopKeepAlive();
+                if(this.state.getRole() == State.Role.Leader) {
+                    this.stopKeepAlive();
+                    this.state.stopReplication();
                 }
+                
                 if(this.electionManager != null) {
                     this.electionManager.interruptElection();
                 }
@@ -427,10 +457,6 @@ public class Server implements RemoteServerInterface {
 //
 //        return id;
 //    }
-    
-    public void addToCluster(String id, RemoteServerInterface server) {
-        cluster.put(id, server); // todo synchronize on cluster?
-    }
 
     /**
      * Puts a message in the message queue
@@ -472,7 +498,11 @@ public class Server implements RemoteServerInterface {
      */
     public Result appendEntries(AppendEntries message) {
         // Set leader
-        setLeader(cluster.get(message.getLeaderId()));
+        RemoteServerInterface messageLeader;
+        synchronized (clusterSync) {
+            messageLeader = cluster.get(message.getLeaderId());
+        }
+        setLeader(messageLeader);
 
         // Stops [If election timeout elapses without receiving AppendEntries RPC from current leader or granting
         // vote to candidate: convert to candidate]
@@ -544,9 +574,9 @@ public class Server implements RemoteServerInterface {
         // To prevent this problem, servers disregard RequestVote RPCs when they believe a current leader exists.
         // Specifically, if a server receives a RequestVote RPC within the minimum election timeout of hearing
         // from a current leader, it does not update its term or grant its vote.
-//        if(this.serverState.getRole() == State.Role.Leader
+//        if(this.state.getRole() == State.Role.Leader
 //                || !State.getElapsedMinTimeout()) {
-//            return new Result(message.getRequestNumber(), currentTerm, false);
+//            return new Result(this.id, Message.Type.RequestVote, message.getInternalRequestNumber(), currentTerm, false);
 //        }
 
         // 1. Reply false if term < currentTerm (§5.1)
@@ -693,19 +723,35 @@ public class Server implements RemoteServerInterface {
      * Start the keepalive process
      */
     public void startKeepAlive() {
-        this.keepAliveManager = new KeepAliveManager(this, cluster);
+        this.keepAliveManager = new KeepAliveManager(this);
         this.keepAliveManager.startKeepAlive();
+    }
+
+    public void stopKeepAlive() {
+        this.keepAliveManager.stopKeepAlive();
     }
 
     /**
      * {@inheritDoc}
      */
     @Override
-    public synchronized void notifyAvailability(String serverName, RemoteServerInterface serverInterface) {
-        this.cluster.put(serverName, serverInterface);
+    public void notifyAvailability(String serverName, RemoteServerInterface serverInterface) {
+        enqueue(new ServerAvailable(serverName, serverInterface));
+    }
+    
+    public void serverAvailable(ServerAvailable message) {
+        if(this.configuration.getCluster().stream().noneMatch(x -> x.equals(message.getServerName()))) {
+            System.err.println("HOSTILE TAKEOVER");
+            return;
+        }
+        
+        synchronized (clusterSync) {
+            cluster.put(message.getServerName(), message.getServerInterface());
+        }
+        
         if(this.state != null && this.state.getRole() == State.Role.Leader) {
-            this.keepAliveManager.startKeepAlive(serverName, serverInterface);
-            this.state.startReplication(serverName, serverInterface);
+            this.keepAliveManager.startKeepAlive(message.getServerName(), message.getServerInterface());
+            this.state.startReplication(message.getServerName(), message.getServerInterface());
         }
     }
 
@@ -715,11 +761,11 @@ public class Server implements RemoteServerInterface {
     }
 
     public Result installConfiguration(Integer internalRequestNumber, ServerConfiguration configuration) {
-        this.configuration = configuration;        
+        this.configuration = configuration;
         writeConfiguration(configuration);
         
         loadConfiguration(true);
-
+        
         return new Result(this.id, Message.Type.ChangeConfiguration, internalRequestNumber, this.state.getCurrentTerm(), true);
     }
 
@@ -764,7 +810,9 @@ public class Server implements RemoteServerInterface {
     }
 
     public Map<String, RemoteServerInterface> getCluster() {
-        return new HashMap<>(cluster);
+        synchronized (clusterSync) {
+            return new HashMap<>(cluster);
+        }
     }
 
     /**
@@ -772,11 +820,15 @@ public class Server implements RemoteServerInterface {
      * @return The cluster size
      */
     public int getClusterSize() {
-        return cluster.size() + 1; // +1 to consider self
+        synchronized (clusterSync) {
+            return cluster.size() + 1; // +1 to consider self
+        }
     }
 
     public Set<String> getServersInCluster() {
-        return cluster.keySet();
+        synchronized (clusterSync) {
+            return cluster.keySet();
+        }
     }
 
     @Override

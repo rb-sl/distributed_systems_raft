@@ -23,17 +23,17 @@ public class KeepAliveManager {
      */
     private final Server server;
     /**
-     * The cluster to keep alive
-     */
-    private final Map<String, RemoteServerInterface> cluster;
-    /**
      * Map of threads for each server
      */
     private static Map<String, Thread> threads;
 
-    public KeepAliveManager(Server server, Map<String, RemoteServerInterface> cluster) {
+    /**
+     * Map of server interfaces at thread start
+     */
+    private static final Map<String, RemoteServerInterface> activeCluster = new HashMap<>();
+    
+    public KeepAliveManager(Server server) {
         this.server = server;
-        this.cluster = cluster;
         threads = new HashMap<>();
     }
 
@@ -41,7 +41,7 @@ public class KeepAliveManager {
      * Starts the keep-alive process
      */
     public void startKeepAlive() {
-        for(Map.Entry<String, RemoteServerInterface> entry: cluster.entrySet()) {
+        for(Map.Entry<String, RemoteServerInterface> entry: this.server.getCluster().entrySet()) {
             startKeepAlive(entry.getKey(), entry.getValue());
         }
     }
@@ -51,20 +51,25 @@ public class KeepAliveManager {
      * @param serverId The name of the server to keep alive
      * @param serverInterface The remote server's interface
      */
-    public synchronized void startKeepAlive(String serverId, RemoteServerInterface serverInterface) {
+    public void startKeepAlive(String serverId, RemoteServerInterface serverInterface) {
         Thread thread;
 
         // If the leader was already keeping alive the remote server, the thread is swapped for the new one
         thread = threads.get(serverId);
         if(thread != null && thread.isAlive()) {
+            if(serverInterface.equals(activeCluster.get(serverId))) {
+                // The keep alive is active on the correct interface
+                return;
+            }
             thread.interrupt();
             System.out.println(Thread.currentThread().getId() + " [KeepAlive] Thread " + thread.getId() + " stopped, starting new one for " + serverId);
-        }
+        }        
         
         thread = new Thread(() -> keepAlive(serverId, serverInterface));
         thread.setDaemon(true);
 
         threads.put(serverId, thread);
+        activeCluster.put(serverId, serverInterface);
         thread.start();
     }
 
