@@ -157,7 +157,8 @@ public class Server implements RemoteServerInterface {
         if(!reload) {
             this.configuration = readConfiguration(id);
             if(configuration == null) {
-                return; // todo exception?
+                System.err.println("Server '" + id + "' has no configuration. Terminating.");
+                exit(-1);
             }
         }        
 
@@ -191,7 +192,14 @@ public class Server implements RemoteServerInterface {
             synchronized (clusterSync) {
                 cluster.clear();
             }
-            for (ServerConfiguration other : this.configuration.getCluster()) {
+            
+            Map<String, ServerConfiguration> clusterConf = this.configuration.getCluster();            
+            if(clusterConf == null) {
+                System.err.println("Server '" + id + "' is not in the current configuration. Terminating.");
+                exit(-1);
+            }
+            
+            for (ServerConfiguration other : clusterConf.values()) {                
                 InetAddress otherRegistryIP = other.getRegistryIP();
                 Integer otherRegistryPort = other.getRegistryPort();
 
@@ -740,7 +748,7 @@ public class Server implements RemoteServerInterface {
     }
     
     public void serverAvailable(ServerAvailable message) {
-        if(this.configuration.getCluster().stream().noneMatch(x -> x.equals(message.getServerName()))) {
+        if(this.configuration.getCluster().values().stream().noneMatch(x -> x.equals(message.getServerName()))) {
             System.err.println("HOSTILE TAKEOVER");
             return;
         }

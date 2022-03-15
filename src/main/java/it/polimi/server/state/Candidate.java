@@ -24,6 +24,11 @@ public class Candidate extends State {
      */
     private static int nVotes;
 
+    /**
+     * If true stops the election
+     */
+    private static boolean elected;
+
     public Candidate(State state) {
         this(state.server, state.currentTerm, state.votedFor, state.logger, commitIndex, state.lastApplied);
     }
@@ -31,6 +36,7 @@ public class Candidate extends State {
     public Candidate(Server server, Integer currentTerm, String votedFor, Logger logger, Integer commitIndex, Integer lastApplied) {
         super(server, currentTerm, votedFor, logger, commitIndex, lastApplied);
         super.role = Role.Candidate;
+        elected = false;
 
         System.out.println(Thread.currentThread().getId() + " [!] Changed to CANDIDATE in Term " + currentTerm);
 
@@ -97,7 +103,8 @@ public class Candidate extends State {
     public synchronized void incrementVotes(Integer term) {
         nVotes++;
 
-        if(nVotes > server.getClusterSize() / 2) {
+        if(!elected && nVotes > server.getClusterSize() / 2) {
+            elected = true;
             stopTimers();
             this.server.enqueue(new StateTransition(Role.Leader));
         }

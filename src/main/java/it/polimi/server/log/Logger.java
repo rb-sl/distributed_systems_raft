@@ -120,6 +120,7 @@ public class Logger {
                     server.installConfiguration(entry.getInternalRequestNumber(), entry.getConfiguration().get(server.getId()));
                 }
             });
+            nextKey = entries.lastKey() + 1;
             printLog();
         }
     }
@@ -132,7 +133,7 @@ public class Logger {
             System.out.println("---Log---------------");
             for (Map.Entry<Integer, LogEntry> entry : entries.entrySet()) {
                 if(entry.getValue() instanceof ClusterEntry clusterEntry) {
-                    System.out.println(entry.getKey() + ": Cluster change " + clusterEntry.getConfiguration());
+                    System.out.println(entry.getKey() + ": Cluster change " + clusterEntry.getConfiguration().keySet());
                 }
                 else {
                     System.out.println(entry.getKey() + ": [Term " + entry.getValue().getTerm() + "] " + entry.getValue().getVarName() + " ← " + entry.getValue().getValue());
@@ -217,11 +218,13 @@ public class Logger {
         }
     }
     
-    public void addClusterEntry(int term, Integer clientRequestNumber, Map<String, ServerConfiguration> configuration) {
+    public Integer addClusterEntry(int term, Integer clientRequestNumber, Map<String, ServerConfiguration> configuration) {
         synchronized (entriesSync) {
-            entries.put(nextKey, new ClusterEntry(term, clientRequestNumber, configuration, nextKey));
+            Integer key = nextKey;
+            entries.put(key, new ClusterEntry(term, clientRequestNumber, configuration, key));
             nextKey++;
             printLog();
+            return key;
         }
     }
 

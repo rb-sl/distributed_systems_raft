@@ -75,6 +75,7 @@ public abstract class State {
     /**
      * Synchronization object for commitIndex
      */
+    @Getter
     protected static final Object commitIndexSync = new Object();
 
     /**
@@ -230,6 +231,8 @@ public abstract class State {
                     }
                 }
             }
+            
+            commitIndexSync.notifyAll();
         }
     }
 
@@ -307,7 +310,7 @@ public abstract class State {
     }
 
     /**
-     * For leaders that need confirm followers' appends
+     * For leaders that need to confirm followers' appends
      * @param serverId The server that confirmed the append 
      */
     public void confirmAppend(String serverId) {}

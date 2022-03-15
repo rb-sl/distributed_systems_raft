@@ -86,11 +86,13 @@ public class User extends Client {
      */
     public Integer writeToCluster(String variable, Integer value) {
         Integer nWritten = null;
+        Integer requestNumber = this.requestSerialnumber;
+        this.requestSerialnumber++;
+        
         boolean requestComplete = false;
         while (!requestComplete) {
             try {
-                nWritten = raft.write(this.id, this.requestSerialnumber, variable, value);
-                this.requestSerialnumber++;
+                nWritten = raft.write(this.id, requestNumber, variable, value);                
                 requestComplete = true;
             } catch (RemoteException e) {
                 System.err.println("Connection error, retrying...");

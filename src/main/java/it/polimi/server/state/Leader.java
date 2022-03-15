@@ -177,7 +177,7 @@ public class Leader extends State {
                 return;
             }
             thread.interrupt();
-            System.out.println(Thread.currentThread().getId() + " [Replication] Thread " + thread.getId() + " stopped, starting new one for " + serverId);
+            System.out.println(Thread.currentThread().getId() + " [Replication] Thread " + thread.getId());
         }
 
         thread = new Thread(() -> replicate(serverId, serverInterface));
@@ -185,7 +185,8 @@ public class Leader extends State {
        
         replicationThreads.put(serverId, thread);
         activeCluster.put(serverId, serverInterface);
-        thread.start();        
+        thread.start();
+        System.out.println(Thread.currentThread().getId() + " [Replication] Thread " + thread.getId() + " started for " + serverId);
     }
 
     /**
@@ -243,7 +244,7 @@ public class Leader extends State {
                 try {
                     synchronized (nextIndexSync) {
                         // When no new client requests need to be replicated the thread waits
-                        System.err.println("No new requests");
+                        System.err.println(Thread.currentThread().getId() + ": No new requests");
                         nextIndexSync.wait();
                     }
                 } catch (InterruptedException e) {
@@ -290,7 +291,7 @@ public class Leader extends State {
             synchronized (nextIndexSync) {
                 nextIndex.put(serverId, nextIndex.get(serverId) - 1);
             }
-            System.err.println("Replication " + serverId + " failed");
+            System.err.println(Thread.currentThread().getId() + ": Replication " + serverId + " failed");
         }
     }
 

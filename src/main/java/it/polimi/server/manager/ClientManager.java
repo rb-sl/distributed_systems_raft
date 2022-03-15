@@ -159,12 +159,27 @@ public class ClientManager {
         // When the leader receives a request to change the configuration from Cold to Cnew, it stores the
         // configuration for joint consensus (Cold,new in the figure) as a log entry and replicates that
         // entry using the mechanisms described previously
-        server.getState().getLogger().addClusterEntry(server.getState().getCurrentTerm(), clientRequestNumber, cNew);
-        server.installConfiguration(clientRequestNumber, cNew.get(server.getId()));
-        
+        Map<String, ServerConfiguration> cOldNew = ServerConfiguration.merge(server.getConfiguration().getCluster(), cNew);
+        Integer indexToWait = server.getState().getLogger().addClusterEntry(server.getState().getCurrentTerm(), clientRequestNumber, cOldNew);
+        server.installConfiguration(clientRequestNumber, cOldNew.get(server.getId()));        
         server.getState().logAdded();
         
-        // todo
+        // Once Cold,new has been committed, [...] It is safe for the leader to create a log entry describing
+        // Cnew and replicate it to the cluster.
+        while(server.getState().getCommitIndex() < indexToWait) {
+            synchronized (State.getCommitIndexSync()) {
+                try {
+                    State.getCommitIndexSync().wait();
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+
+        server.getState().getLogger().addClusterEntry(server.getState().getCurrentTerm(), clientRequestNumber, cNew);
+        server.installConfiguration(clientRequestNumber, cNew.get(server.getId()));
+        server.getState().logAdded();
+        
         
 //        ClientResult response = waitResponse(currentRequest);
 //        synchronized (clientCacheSync) {

@@ -4,10 +4,7 @@ import lombok.Getter;
 
 import java.io.Serializable;
 import java.net.InetAddress;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
 
 /**
  * Class used to read server configuration files
@@ -33,13 +30,13 @@ public class ServerConfiguration implements Serializable {
     /**
      * List of servers in cluster
      */
-    private final List<ServerConfiguration> cluster;
+    private final Map<String, ServerConfiguration> cluster;
     /**
      * Length of log after which a snapshot is taken
      */
     private final Integer maxLogLength;
 
-    public ServerConfiguration(String name, Integer port, InetAddress registryIP, Integer registryPort, List<ServerConfiguration> cluster, Integer maxLogLength) {
+    public ServerConfiguration(String name, Integer port, InetAddress registryIP, Integer registryPort, Map<String, ServerConfiguration> cluster, Integer maxLogLength) {
         this.name = name;
         this.port = port;
         this.registryIP = registryIP;
@@ -48,11 +45,11 @@ public class ServerConfiguration implements Serializable {
         this.maxLogLength = maxLogLength;
     }
     
-    public static ServerConfiguration merge(ServerConfiguration conf1, ServerConfiguration conf2) {
-        List<ServerConfiguration> newCluster = new ArrayList<>();
-        newCluster.addAll(conf1.cluster);
-        newCluster.addAll(conf2.cluster);
-        return new ServerConfiguration(conf2.name, conf2.port, conf2.registryIP, conf2.registryPort, newCluster, conf2.maxLogLength);
+    public static Map<String, ServerConfiguration> merge(Map<String, ServerConfiguration> conf1, Map<String, ServerConfiguration> conf2) {
+        Map<String, ServerConfiguration> newCluster = new HashMap<>();
+        newCluster.putAll(conf1);
+        newCluster.putAll(conf2);
+        return newCluster;
     }
 
     @Override

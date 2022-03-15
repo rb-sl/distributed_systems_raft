@@ -71,6 +71,8 @@ public class KeepAliveManager {
         threads.put(serverId, thread);
         activeCluster.put(serverId, serverInterface);
         thread.start();
+
+        System.out.println(Thread.currentThread().getId() + " [KeepAlive] Thread " + thread.getId() + " started for " + serverId);
     }
 
     /**
