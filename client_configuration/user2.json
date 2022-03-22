@@ -1,0 +1,5 @@
+{
+  "name": "user2",
+  "raftRegistryIP": "127.0.0.1",
+  "raftRegistryPort": "1099"
+}

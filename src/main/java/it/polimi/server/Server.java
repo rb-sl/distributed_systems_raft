@@ -41,7 +41,11 @@ public class Server implements RemoteServerInterface {
      * Configuration for the server
      */
     @Getter
-    private ServerConfiguration configuration;
+    private static ServerConfiguration configuration;
+    /**
+     * Synchronization object for configuration
+     */
+    private static final Object configurationSync = new Object();
     
     /**
      * Server state
@@ -127,7 +131,7 @@ public class Server implements RemoteServerInterface {
     /**
      * Object that manages keepalive process
      */
-    private KeepAliveManager keepAliveManager; // todo static?
+    private KeepAliveManager keepAliveManager;
 
     private final Gson gson = new Gson();
 
@@ -154,75 +158,78 @@ public class Server implements RemoteServerInterface {
     }
     
     private void loadConfiguration(boolean reload) {
-        if(!reload) {
-            this.configuration = readConfiguration(id);
-            if(configuration == null) {
-                System.err.println("Server '" + id + "' has no configuration. Terminating.");
-                exit(-1);
-            }
-        }        
-
-        try {
-            if(!reload) {
-                // Builds the server interface on the given port (or on a random one if null)
-                Integer port = this.configuration.getPort();
-                if (port == null) {
-                    port = 0;
+        synchronized (configurationSync) {
+            if (!reload) {
+                configuration = readConfiguration(id);
+                if (configuration == null) {
+                    System.err.println("Server '" + id + "' has no configuration. Terminating.");
+                    exit(-1);
                 }
-                this.selfInterface = (RemoteServerInterface) UnicastRemoteObject.exportObject(this, port);
             }
-            
-            localRegistry = LocateRegistry.getRegistry();
+
             try {
-                localRegistry.bind(id, this.selfInterface);
-            } catch (AlreadyBoundException e) {
-                localRegistry.rebind(id, this.selfInterface);
-            } catch (RemoteException e) {
-                System.err.println("Creating local RMI registry");
-                Integer localPort = this.configuration.getRegistryPort();
-                if (localPort == null) {
-                    localPort = 1099;
+                if (!reload) {
+                    // Builds the server interface on the given port (or on a random one if null)
+                    Integer port = configuration.getPort();
+                    if (port == null) {
+                        port = 0;
+                    }
+                    this.selfInterface = (RemoteServerInterface) UnicastRemoteObject.exportObject(this, port);
                 }
-                localRegistry = LocateRegistry.createRegistry(localPort);
-                localRegistry.bind(id, this.selfInterface);
-            }
 
-            // (Re)creates the cluster
-            Registry registry;
-            synchronized (clusterSync) {
-                cluster.clear();
-            }
-            
-            Map<String, ServerConfiguration> clusterConf = this.configuration.getCluster();            
-            if(clusterConf == null) {
-                System.err.println("Server '" + id + "' is not in the current configuration. Terminating.");
-                exit(-1);
-            }
-            
-            for (ServerConfiguration other : clusterConf.values()) {                
-                InetAddress otherRegistryIP = other.getRegistryIP();
-                Integer otherRegistryPort = other.getRegistryPort();
-
+                localRegistry = LocateRegistry.getRegistry();
                 try {
-                    if (otherRegistryIP != null && otherRegistryPort != null) {
-                        registry = LocateRegistry.getRegistry(otherRegistryIP.getHostAddress(), otherRegistryPort);
-                    } else {
-                        // With no given information on the registry the server is seeked locally
-                        registry = LocateRegistry.getRegistry();
+                    localRegistry.bind(id, this.selfInterface);
+                } catch (AlreadyBoundException e) {
+                    localRegistry.rebind(id, this.selfInterface);
+                } catch (RemoteException e) {
+                    System.err.println("Creating local RMI registry");
+                    Integer localPort = configuration.getRegistryPort();
+                    if (localPort == null) {
+                        localPort = 1099;
                     }
-
-                    RemoteServerInterface peer = (RemoteServerInterface) registry.lookup(other.getName());
-                    synchronized (clusterSync) {
-                        cluster.put(other.getName(), peer);
-                    }
-                    peer.notifyAvailability(id, this);
-                } catch (RemoteException | NotBoundException e) {
-                    System.err.println("Server '" + other.getName() + "' at " + otherRegistryIP + ":" + otherRegistryPort + " not available");
+                    localRegistry = LocateRegistry.createRegistry(localPort);
+                    localRegistry.bind(id, this.selfInterface);
                 }
+
+                // (Re)creates the cluster
+                Registry registry;
+                synchronized (clusterSync) {
+                    cluster.clear();
+                }
+
+                Map<String, ServerConfiguration> clusterConf = configuration.getCluster();
+                if (clusterConf == null) {
+                    System.err.println("Server '" + id + "' is not in the current configuration. Terminating.");
+                    exit(-1);
+//                    return;
+                }
+
+                for (ServerConfiguration other : clusterConf.values()) {
+                    InetAddress otherRegistryIP = other.getRegistryIP();
+                    Integer otherRegistryPort = other.getRegistryPort();
+
+                    try {
+                        if (otherRegistryIP != null && otherRegistryPort != null) {
+                            registry = LocateRegistry.getRegistry(otherRegistryIP.getHostAddress(), otherRegistryPort);
+                        } else {
+                            // With no given information on the registry the server is seeked locally
+                            registry = LocateRegistry.getRegistry();
+                        }
+
+                        RemoteServerInterface peer = (RemoteServerInterface) registry.lookup(other.getName());
+                        synchronized (clusterSync) {
+                            cluster.put(other.getName(), peer);
+                        }
+                        peer.notifyAvailability(id, this);
+                    } catch (RemoteException | NotBoundException e) {
+                        System.err.println("Server '" + other.getName() + "' at " + otherRegistryIP + ":" + otherRegistryPort + " not available");
+                    }
+                }
+            } catch (Exception e) {
+                System.err.println("Server exception: " + e);
+                e.printStackTrace();
             }
-        } catch (Exception e) {
-            System.err.println("Server exception: " + e);
-            e.printStackTrace();
         }
     }
 
@@ -260,7 +267,7 @@ public class Server implements RemoteServerInterface {
      * Main loop, executes the server
      */
     public void start() {
-        this.state = new Follower(this, this.configuration.getMaxLogLength());
+        this.state = new Follower(this, configuration.getMaxLogLength());
         System.err.println("Server '" + this.id + "' ready");
         
         // Start processing messages in the queue
@@ -275,10 +282,6 @@ public class Server implements RemoteServerInterface {
                     // A message from a server outside the cluster is disregarded
                     continue;
                 }
-
-//                if(message.getTerm() != null) {
-//                    this.state.convertOnNextTerm(message.getTerm());
-//                }
                 
                 switch (message.getMessageType()) {
                     case AppendEntry -> result = appendEntries((AppendEntries) message);
@@ -361,20 +364,7 @@ public class Server implements RemoteServerInterface {
                     case UpdateIndex -> this.state.setCommitIndex(((UpdateIndex) message).getCommitIndex());
                     case ChangeConfiguration -> {
                         ChangeConfiguration changeRequest = (ChangeConfiguration) message;
-//                        if(this.state.getRole() == State.Role.Leader) {
-                        // you can't be completely specific in a to-do note
-                        // Hold my beer
-                        // todo something
                         installConfiguration(changeRequest.getInternalRequestNumber(), changeRequest.getConfiguration());
-//                        state.logAdded();
-                        
-//                        if(this.state.getRole() == State.Role.Leader) {
-//                            clientManager.clientRequestComplete(changeRequest.getInternalRequestNumber(), changeRequest.getClientRequestNumber(), null);
-//                        }
-//                        else {
-//                            clientManager.clientRequestError(changeRequest.getInternalRequestNumber(), changeRequest.getClientRequestNumber(),
-//                                    ClientResult.Status.NOTLEADER);
-//                        }
                     }
                     case ServerAvailable -> {
                         ServerAvailable available = (ServerAvailable) message;
@@ -432,39 +422,6 @@ public class Server implements RemoteServerInterface {
             leaderSync.notifyAll();
         }
     }
-
-//    /**
-//     * {@inheritDoc}
-//     */
-//    public int addToCluster(RemoteServerInterface follower) throws RemoteException {
-//        int id;
-//        do {
-//            id = ThreadLocalRandom.current().nextInt(0, 10000);
-//        } while(cluster.containsKey(id));
-//
-//        System.err.println("Adding to cluster");
-//        System.err.println(this);
-//
-//        System.err.println(Thread.currentThread().getId() + " Add cluster");
-//        Thread t = new Thread(()->keepAlive(follower));
-//        t.start();
-//
-//        // Adds self to follower
-//        follower.addToCluster(this.id, this);
-//
-//        for(Map.Entry<String, RemoteServerInterface> entry: cluster.entrySet()) {
-//            // Adds to others
-//            entry.getValue().addToCluster(id, follower);
-//
-//            //Adds others to follower
-//            follower.addToCluster(entry.getKey(), entry.getValue());
-//        }
-//
-//        // Adds to self
-//        addToCluster(id, follower);
-//
-//        return id;
-//    }
 
     /**
      * Puts a message in the message queue
@@ -582,10 +539,10 @@ public class Server implements RemoteServerInterface {
         // To prevent this problem, servers disregard RequestVote RPCs when they believe a current leader exists.
         // Specifically, if a server receives a RequestVote RPC within the minimum election timeout of hearing
         // from a current leader, it does not update its term or grant its vote.
-//        if(this.state.getRole() == State.Role.Leader
-//                || !State.getElapsedMinTimeout()) {
-//            return new Result(this.id, Message.Type.RequestVote, message.getInternalRequestNumber(), currentTerm, false);
-//        }
+        if(this.state.getRole() == State.Role.Leader
+                || !state.getElapsedMinTimeout()) {
+            return new Result(this.id, Message.Type.RequestVote, message.getInternalRequestNumber(), currentTerm, false);
+        }
 
         // 1. Reply false if term < currentTerm (§5.1)
         if(term < currentTerm) {
@@ -649,7 +606,7 @@ public class Server implements RemoteServerInterface {
         
         // 2. Create new snapshot file if first chunk (offset is 0)
         Path snapshotPath = Paths.get(this.state.getLogger().getStorage() + "_" + message.getLastIncludedIndex() + ".temp");
-        RandomAccessFile snapshotTempFile = null;
+        RandomAccessFile snapshotTempFile;
         if(message.getOffset() == 0) {
             try {
                 Files.deleteIfExists(snapshotPath);
@@ -670,10 +627,6 @@ public class Server implements RemoteServerInterface {
         
         // 3. Write data into snapshot file at given offset
         try {
-            // If the file is not long enough it is extended
-//            if(snapshotTempFile.length() < message.getOffset()) {
-//                snapshotTempFile.setLength(message.getOffset());
-//            }
             snapshotTempFile.seek((long) message.getOffset() * Snapshot.CHUNK_DIMENSION);
             snapshotTempFile.write(message.getData());
             snapshotTempFile.close();
@@ -748,9 +701,11 @@ public class Server implements RemoteServerInterface {
     }
     
     public void serverAvailable(ServerAvailable message) {
-        if(this.configuration.getCluster().values().stream().noneMatch(x -> x.equals(message.getServerName()))) {
-            System.err.println("HOSTILE TAKEOVER");
-            return;
+        synchronized (configurationSync) {
+            if (configuration.getCluster() == null || configuration.getCluster().values().stream().noneMatch(x -> x.equals(message.getServerName()))) {
+                System.err.println("Server not in the configuration ignored.");
+                return;
+            }
         }
         
         synchronized (clusterSync) {
@@ -763,17 +718,14 @@ public class Server implements RemoteServerInterface {
         }
     }
 
-    @Override
-    public void installConfiguration(Map<String, ServerConfiguration> newConfiguration) throws RemoteException {
-        enqueue(new ChangeConfiguration(newConfiguration.get(id)));
-    }
-
-    public Result installConfiguration(Integer internalRequestNumber, ServerConfiguration configuration) {
-        this.configuration = configuration;
-        writeConfiguration(configuration);
-        
-        loadConfiguration(true);
-        
+    public Result installConfiguration(Integer internalRequestNumber, ServerConfiguration localConfiguration) {
+        if(localConfiguration != null && localConfiguration.getCluster() != null) {
+            synchronized (configurationSync) {
+                configuration = localConfiguration;
+                writeConfiguration(localConfiguration);
+            }
+            loadConfiguration(true);
+        }
         return new Result(this.id, Message.Type.ChangeConfiguration, internalRequestNumber, this.state.getCurrentTerm(), true);
     }
 
@@ -843,7 +795,7 @@ public class Server implements RemoteServerInterface {
     public String toString() {
         return "{\n" +
                 "'serverState':" + state.toString() +
-                "',\n   'cluster':'" + cluster.toString() +
+                "',\n   'cluster':'" + cluster +
                 "',\n   'id':'" + id +
                 "'\n}";
     }

@@ -2,7 +2,6 @@ package it.polimi.networking.messages;
 
 import it.polimi.networking.RemoteServerInterface;
 import lombok.Getter;
-import lombok.Setter;
 
 /**
  * RequestVote message as per the paper

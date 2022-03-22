@@ -24,7 +24,10 @@ import java.util.Map;
 import static java.lang.System.exit;
 
 public class AdminConsole extends Client {
-    private final Map<String, RemoteServerInterface> raft;
+    /**
+     * Map of the cluster
+     */
+    private final Map<String, RemoteServerInterface> raftCluster;
 
     public AdminConsole() {
         this("admin1");
@@ -32,13 +35,13 @@ public class AdminConsole extends Client {
     
     public AdminConsole(String adminName) {
         super(adminName);
-        
-        raft = new HashMap<>();        
+
+        raftCluster = new HashMap<>();        
         String[] servers = availableServers();
         for(String id : servers) {
             System.out.println("Connecting to " + id);
             try {
-                raft.put(id, (RemoteServerInterface) registry.lookup(id));
+                raftCluster.put(id, (RemoteServerInterface) registry.lookup(id));
             } catch (RemoteException | NotBoundException e) {
                 System.err.println("Cannot connect to server " + id);
                 e.printStackTrace();
@@ -51,6 +54,9 @@ public class AdminConsole extends Client {
         }
     }
 
+    /**
+     * Starts the interactive shell for the client
+     */
     public void startCmd() {
         System.out.println("Raft console - Admin mode");
         System.out.println("Use 'h' to see available commands");
@@ -70,7 +76,7 @@ public class AdminConsole extends Client {
                     System.out.println("Available commands:");
                     System.out.println("\t's [serverName]': starts the server with the given name on this machine (must exist in configuration)");
                     System.out.println("\t'k [serverName]': kills the server with the given name (must be active)");
-                    System.out.println("\t'c': enter cluster management mode");
+                    System.out.println("\t'c [fileName]': send the given configuration");
                     System.out.println("\t'h': Opens this menu");
                     System.out.println("\t'q': Stops the client");
                 }
@@ -91,11 +97,11 @@ public class AdminConsole extends Client {
                     }
                 }
                 case "c" -> {
-                    if(!isAdmin) {
-                        System.out.println("Unrecognized command '" + choice + "'");
+                    if (params.length != 2) {
+                        System.out.println("Malformed command. Cluster change must be in the form: 'c [fileName]'");
                     }
                     else {
-                        clusterCmd();
+                        sendConfiguration(params[1]);
                     }
                 }
                 case "q" -> {
@@ -105,58 +111,41 @@ public class AdminConsole extends Client {
             }
         }
     }
-
-    /**
-     * Enters the cluster management menu
-     */
-    private void clusterCmd() {
-        System.out.println("Raft - Cluster management mode");
-
-        String[] params;
-        String choice;
-        while (true) {
-            params = readCommand();
-            try {
-                choice = params[0];
-            } catch(ArrayIndexOutOfBoundsException | NullPointerException e) {
-                choice = "";
-            }
-            switch (choice) {
-                case "h" -> {
-                    System.out.println("Available cluster commands:");
-                    System.out.println("\t'a [serverName]': adds a new configuration for the cluster");
-                    System.out.println("\t'r [serverName]': removes the server configuration for the cluster");
-                    System.out.println("\t'e [serverName]': exits to main menu");
-                }
-                // todo implement
-                case "e" -> {
-                    return;
-                }
-            }
-        }
-    }
     
+    /**
+     * Starts a new process on the admin's machine for the given server
+     * @param serverName Id of the server to start
+     */
     public void startServer(String serverName) {
         try {
             ProcessStarter.startServerProcess(serverName, 0, false);
-            // todo add to raft?
+            System.out.println("Server " + serverName + " started.");
         } catch (IOException | InterruptedException e) {
             e.printStackTrace();
         }
     }
-    
+
+    /**
+     * Stops the given server
+     * @param serverName Id of the server to stop
+     */
     public void killServer(String serverName) {
         try {
             RemoteServerInterface toKill = (RemoteServerInterface) registry.lookup(serverName);
             toKill.stop();
+            System.out.println("Server " + serverName + " stopped.");
         } catch (ConnectException | NullPointerException ex) {
-            System.err.println("Cannot connect to " +serverName + ", server is likely not active");
+            System.err.println("Cannot connect to " + serverName + ", server is likely not active");
         }
         catch (RemoteException | NotBoundException e) {
             e.printStackTrace();
         }
     }
-    
+
+    /**
+     * Starts a configuration change with the cluster's leader
+     * @param fileName The name of the file containing the configuration 
+     */
     public void sendConfiguration(String fileName) {
         Map<String, ServerConfiguration> cNew;
         try {
@@ -171,11 +160,21 @@ public class AdminConsole extends Client {
             return;
         }
 
-        RemoteServerInterface leader = raft.get("server3");        
-        try {
-            leader.changeConfiguration("admin1", 0, cNew);
-        } catch (RemoteException | NotLeaderException e) {
-            e.printStackTrace();
+        boolean requestComplete = false;
+        while (!requestComplete) {
+            try {
+                raft.changeConfiguration(id, this.requestSerialnumber, cNew);
+                this.requestSerialnumber++;
+                requestComplete = true;
+            } catch (RemoteException e) {
+                System.err.println("Connection error, retrying...");
+                raft = connectToRandomServer();
+            } catch (NotLeaderException e) {
+                System.err.println(e + " Connecting to leader");
+                raft = e.getLeader();
+            }
         }
+
+        System.out.println("Configuration " + fileName + " installed.");
     }
 }

@@ -65,6 +65,17 @@ public class Leader extends State {
      */
     private static final Object readConfirmedSync = new Object();
 
+    /**
+     * Number of added servers that haven't caught up to the cluster yet 
+     */
+    private static Integer laggingBehind;
+    /**
+     * Synchronization Object for laggingBehind
+     */
+    private static final Object laggingSync = new Object();
+    
+    
+
     public Leader(State state) {
         this(state.server, state.currentTerm, state.votedFor, state.logger, commitIndex, state.lastApplied);
     }
@@ -77,15 +88,16 @@ public class Leader extends State {
         replicationThreads = new HashMap<>();
         readConfirmed = new HashMap<>();
 
+        synchronized (laggingSync) {
+            laggingBehind = 0;
+        }
+        
         Integer lastIndex = getLastLogIndex();
 
         Integer nextLogIndex = null;
         if(lastIndex != null) {
             nextLogIndex = lastIndex + 1;
         }
-
-//        nextIndex.put(server.getId(), nextLogIndex); todo same
-//        matchIndex.put(server.getId(), lastIndex);
 
         for(String id: server.getServersInCluster()) {
             // initialized to leader last log index + 1
@@ -141,13 +153,25 @@ public class Leader extends State {
     public void waitForConfirmation() {
         synchronized (readConfirmedSync) {
             readConfirmed.replaceAll((id, x) -> x = Boolean.FALSE);
-            
+
+            Integer nLagging;
+            synchronized (laggingSync) {
+                nLagging = laggingBehind;
+            }
             // +1 on both sides to account for the leader itself
-            while (readConfirmed.values().stream().filter(x -> x).count() + 1 <= (readConfirmed.size() + 1) / 2) {
+            // laggingBehind: In order to avoid availability gaps, Raft introduces an additional phase before the 
+            // configuration change, in which the new servers join the cluster as non-voting members (the leader 
+            // replicates log entries to them, but they are not considered for majorities). Once the new 
+            // servers have caught up with the rest of the cluster, the reconfiguration can proceed as described above.
+            while (readConfirmed.values().stream().filter(x -> x).count() + 1 <= (readConfirmed.size() + 1 - nLagging) / 2) {
                 try {
                     readConfirmedSync.wait();
                 } catch (InterruptedException e) {
                     e.printStackTrace();
+                }
+                
+                synchronized (laggingSync) {
+                    nLagging = laggingBehind;
                 }
             }
             System.out.println("Confirmed " + (readConfirmed.values().stream().filter(x -> x).count() + 1) + "/" + (readConfirmed.size() + 1));
@@ -208,7 +232,7 @@ public class Leader extends State {
             // If last log index ≥ nextIndex for a follower:
             if (lastLogIndex != null && lastLogIndex >= next) {
                 // send AppendEntries RPC with log entries starting at nextIndex
-                Integer prevLogIndex = null;
+                Integer prevLogIndex;
                 try {
                     prevLogIndex = logger.getIndexBefore(next);
                 } catch (IndexAlreadyDiscardedException e) {
@@ -364,10 +388,15 @@ public class Leader extends State {
                 }
             }
 
+            Integer nLagging;
+            synchronized (laggingSync) {
+                nLagging = laggingBehind;
+            }
+
             // If there exists an N such that N > commitIndex,
             if (minIndexGTCommit != null
                     // a majority of matchIndex[i] ≥ N,
-                    && minCount + 1 > (matchIndex.values().size() + 1) / 2 // Accounts for leader
+                    && minCount + 1 > (matchIndex.values().size() + 1 - nLagging) / 2 // Accounts for leader and new servers
                     // and log[N].term == currentTerm:
                     && (logger.getEntry(minIndexGTCommit) != null && logger.getEntry(minIndexGTCommit).getTerm() == currentTerm)) {
                 // set commitIndex = N (§5.3, §5.4).
@@ -398,9 +427,6 @@ public class Leader extends State {
      * {@inheritDoc}
      */
     public void logAdded() {
-//        synchronized (commitIndexSync) {
-//            matchIndex.put(server.getId(), getLastLogIndex());
-//        }
         synchronized (nextIndexSync) {
             nextIndexSync.notifyAll();
         }
@@ -414,5 +440,27 @@ public class Leader extends State {
             thread.interrupt();
         }
         replicationThreads.clear();
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    public boolean checkIndexesBefore(Integer indexToCheck) {
+        Integer nLess;
+        synchronized (nextIndexSync) {
+            nLess = Math.toIntExact(nextIndex.values().stream().filter(x -> x < indexToCheck).count());
+        }       
+        
+        synchronized (laggingSync) {
+            laggingBehind = nLess;
+        }
+        
+        if(nLess == 0) {
+            synchronized (commitIndexSync) {
+                commitIndexSync.notifyAll();
+            }
+        }
+        
+        return nLess > 0;
     }
 }

@@ -7,7 +7,6 @@ import it.polimi.server.log.LogEntry;
 
 import java.rmi.Remote;
 import java.rmi.RemoteException;
-import java.util.List;
 import java.util.Map;
 import java.util.SortedMap;
 
@@ -18,19 +17,7 @@ public interface RemoteServerInterface extends Remote {
          * @throws RemoteException For RMI
          */
         RemoteServerInterface getLeader() throws RemoteException;
-
-//        /**
-//         * Add the follower to the cluster
-//         *
-//         * @param id
-//         * @param follower The follower
-//         * @return The given ID
-//         * @throws RemoteException For RMI
-//         */
-//        int addToCluster(String id, RemoteServerInterface follower) throws RemoteException;
-
-//        void addToCluster(int id, RemoteServerInterface follower) throws RemoteException;
-
+        
         /**
          * Invoked by leader to replicate log entries (§5.3); also used as heartbeat (§5.2).
          * @param term Leader's term
@@ -85,9 +72,6 @@ public interface RemoteServerInterface extends Remote {
          * @throws RemoteException RMI exception
          */
         void notifyAvailability(String serverName, RemoteServerInterface serverInterface) throws RemoteException;
-        
-        
-        void installConfiguration(Map<String, ServerConfiguration> cNew) throws RemoteException;
 
         // Methods called by clients
         /**

@@ -1,27 +1,7 @@
-[["server1",  {
-    "name": "server1",
-    "cluster": [
-      ["server2", 
-        {
-          "name": "server2"
-        }],
-      ["server3",{
-        "name": "server3",
-        "registryIP": "127.0.0.1",
-        "registryPort": "1099"
-      }],
-      ["server4",{
-        "name": "server4"
-      }]
-    ],
-    "maxLogLength": 20
-  }],["server2",
+[["server2",
   {
     "name": "server2",
     "cluster": [
-      ["server1",{
-        "name": "server1"
-      }],
       ["server3",{
         "name": "server3",
         "registryIP": "127.0.0.1",
@@ -37,9 +17,6 @@
     {
       "name": "server3",
       "cluster": [
-        ["server1",{
-          "name": "server1"
-        }],
         ["server2",{
           "name": "server2"
         }],
@@ -56,9 +33,6 @@
     "registryIP": "127.0.0.1",
     "registryPort": "1099",
     "cluster": [
-      ["server1",{
-        "name": "server1"
-      }],
       ["server2",{
         "name": "server2"
       }],

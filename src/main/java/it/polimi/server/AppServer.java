@@ -3,9 +3,6 @@ package it.polimi.server;
 
 import it.polimi.utilities.OutputInterceptor;
 
-import java.io.PrintStream;
-import java.rmi.server.UnicastRemoteObject;
-
 /**
  * Launcher class for the server
  */

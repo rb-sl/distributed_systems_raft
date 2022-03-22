@@ -1,0 +1,1 @@
+{"name":"server4","registryIP":"127.0.0.1","registryPort":1099,"cluster":{"server2":{"name":"server2"},"server3":{"name":"server3"}},"maxLogLength":20}

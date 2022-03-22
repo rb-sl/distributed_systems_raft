@@ -2,18 +2,14 @@ package it.polimi.server.manager;
 
 import it.polimi.exceptions.NotLeaderException;
 import it.polimi.networking.ClientResult;
-import it.polimi.networking.RemoteServerInterface;
-import it.polimi.networking.messages.ChangeConfiguration;
 import it.polimi.networking.messages.ReadRequest;
+import it.polimi.networking.messages.StateTransition;
 import it.polimi.networking.messages.WriteRequest;
 import it.polimi.server.Server;
 import it.polimi.server.ServerConfiguration;
-import it.polimi.server.log.ClusterEntry;
 import it.polimi.server.state.State;
 
-import java.rmi.RemoteException;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -144,7 +140,14 @@ public class ClientManager {
         }
         return response.getResult();
     }
-    
+
+    /**
+     * Performs the configuration change on the server
+     * @param clientId The client requesting the change
+     * @param clientRequestNumber The client's request number
+     * @param cNew The new configuration
+     * @throws NotLeaderException If the current server is not a leader
+     */
     public void changeConfiguration(String clientId, Integer clientRequestNumber, Map<String, ServerConfiguration> cNew) throws NotLeaderException {
         // The caching mechanism is kept to avoid repeated requests
         Integer latestResponse = getCachedResult(clientId, clientRequestNumber);
@@ -155,18 +158,23 @@ public class ClientManager {
         if(server.getState().getRole() != State.Role.Leader) {
             throw new NotLeaderException(server.getId() + " is not a leader.", server.getLeader());
         }
-
+        
         // When the leader receives a request to change the configuration from Cold to Cnew, it stores the
         // configuration for joint consensus (Cold,new in the figure) as a log entry and replicates that
         // entry using the mechanisms described previously
-        Map<String, ServerConfiguration> cOldNew = ServerConfiguration.merge(server.getConfiguration().getCluster(), cNew);
+        Map<String, ServerConfiguration> cOldNew = ServerConfiguration.merge(Server.getConfiguration().getCluster(), cNew);
         Integer indexToWait = server.getState().getLogger().addClusterEntry(server.getState().getCurrentTerm(), clientRequestNumber, cOldNew);
         server.installConfiguration(clientRequestNumber, cOldNew.get(server.getId()));        
         server.getState().logAdded();
         
         // Once Cold,new has been committed, [...] It is safe for the leader to create a log entry describing
         // Cnew and replicate it to the cluster.
-        while(server.getState().getCommitIndex() < indexToWait) {
+        // Moreover, waits for everyone to catch up, so:
+        // [...] additional phase before the configuration change, in which the new servers join the cluster 
+        // as non-voting members (the leader replicates log entries to them, but they are not considered for
+        // majorities). Once the new servers have caught up with the rest of the cluster, the reconfiguration can
+        // proceed as described above.
+        while(server.getState().getCommitIndex() < indexToWait && server.getState().checkIndexesBefore(indexToWait)) {
             synchronized (State.getCommitIndexSync()) {
                 try {
                     State.getCommitIndexSync().wait();
@@ -176,16 +184,25 @@ public class ClientManager {
             }
         }
 
-        server.getState().getLogger().addClusterEntry(server.getState().getCurrentTerm(), clientRequestNumber, cNew);
+        indexToWait = server.getState().getLogger().addClusterEntry(server.getState().getCurrentTerm(), clientRequestNumber, cNew);
         server.installConfiguration(clientRequestNumber, cNew.get(server.getId()));
         server.getState().logAdded();
         
-        
-//        ClientResult response = waitResponse(currentRequest);
-//        synchronized (clientCacheSync) {
-//            clientCache.put(clientId, response);
-//        }
-//        response.getResult();
+        // [...] the cluster leader may not be part of the new configuration. In this case, the leader steps down
+        // (returns to follower state) once it has committed the Cnew log entry.
+        if(server.getState().getRole() == State.Role.Leader && !cNew.containsKey(server.getId())) {
+            while(server.getState().getCommitIndex() < indexToWait) {
+                synchronized (State.getCommitIndexSync()) {
+                    try {
+                        State.getCommitIndexSync().wait();
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
+                }
+            }
+            System.err.println("The new configuration does not contain " + server.getId() + ", stepping down from LEADER");
+            server.enqueue(new StateTransition(State.Role.Follower));
+        }
     }
 
     /**

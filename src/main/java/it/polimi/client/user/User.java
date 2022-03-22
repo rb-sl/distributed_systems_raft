@@ -2,54 +2,17 @@ package it.polimi.client.user;
 
 import it.polimi.client.Client;
 import it.polimi.exceptions.NotLeaderException;
-import it.polimi.networking.RemoteServerInterface;
 
 import java.io.*;
-import java.rmi.NotBoundException;
 import java.rmi.RemoteException;
-import java.util.concurrent.ThreadLocalRandom;
 
 public class User extends Client {    
-    private Integer requestSerialnumber;
-
-    private RemoteServerInterface raft;    
-    
     public User() {
         this("user1");
     }
     
     public User(String userName) {
-        super(userName);      
-        
-        // When a client first starts up, it connects to a randomly chosen server
-        // If the client’s first choice is not the leader, that server will reject the client’s request and supply
-        // information about the most recent leader [done in each method]
-        raft = connectToRandomServer();
-        if (raft == null) {
-            System.err.println("Unable to access the Raft cluster");
-            return;
-        }
-
-        requestSerialnumber = 0;
-    }
-
-    /**
-     * Connects to a server available in the registry
-     * @return The server's interface
-     */
-    private RemoteServerInterface connectToRandomServer() {
-        String[] servers = availableServers();
-
-        String entryPoint = servers[ThreadLocalRandom.current().nextInt(0, servers.length)];
-        System.out.println("Connecting to " + entryPoint);
-        RemoteServerInterface raft = null;
-        try {
-            raft = (RemoteServerInterface) registry.lookup(entryPoint);
-        } catch (RemoteException | NotBoundException e) {
-            e.printStackTrace();
-        }
-
-        return raft;
+        super(userName);
     }
 
     /**

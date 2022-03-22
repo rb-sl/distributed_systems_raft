@@ -13,14 +13,12 @@ import it.polimi.server.log.LogEntry;
 import it.polimi.server.log.Logger;
 import it.polimi.server.log.Snapshot;
 import lombok.Getter;
-import lombok.NonNull;
 import lombok.Setter;
 
 import java.io.*;
 import java.lang.reflect.Type;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.*;
 
 public abstract class State {
@@ -111,9 +109,12 @@ public abstract class State {
     /**
      * True if the minimum timeout has expired
      */
-    @Getter
     private static Boolean elapsedMinTimeout;
-
+    /**
+     * Synchronization object for elapsedMinTimeout
+     */
+    private static final Object minSync = new Object();
+    
     /**
      * Size of maximum log before snapshotting
      */
@@ -146,7 +147,8 @@ public abstract class State {
         this.lastApplied = lastApplied;
         
         restoreVars();
-        elapsedMinTimeout = false;
+        
+        startMinElectionTimer();
     }
 
     /**
@@ -177,13 +179,6 @@ public abstract class State {
     }
     
     /**
-     * Increase current term value
-     */
-    public void increaseCurrentTerm() {
-        this.currentTerm++;
-    }
-
-    /**
      * Gets the last index of the logs map
      * @return The last map key
      */
@@ -202,7 +197,7 @@ public abstract class State {
     }
 
     /**
-     * Setter for commitIndex, with a check on unapplied logs
+     * Setter for commitIndex, with a check on not applied logs
      * @param localCommitIndex The commit index
      */
     public void setCommitIndex(int localCommitIndex) {
@@ -258,7 +253,7 @@ public abstract class State {
             this.variables.put(key, val);
         }
         
-        if(logger.getLength() == 20) {
+        if(logger.getLength() == maxLogLength) {
             logger.takeSnapshot();
         }
     }
@@ -344,18 +339,29 @@ public abstract class State {
      * Starts the minimum election timer
      */
     private void startMinElectionTimer() {
-        elapsedMinTimeout = false;
+        synchronized (minSync) {
+            elapsedMinTimeout = false;
+        }
+        
         minElectionTimer = new Timer();
         try {
             minElectionTimer.schedule(new TimerTask() {
                 @Override
                 public void run() {
-                    elapsedMinTimeout = true;
+                    synchronized (minSync) {
+                        elapsedMinTimeout = true;
+                    }
                 }
             }, MIN_ELECTION_TIMEOUT);
         } catch (IllegalStateException e) {
             e.printStackTrace();
             System.out.println("(Candidate timer canceled)");
+        }
+    }
+    
+    public boolean getElapsedMinTimeout() {
+        synchronized (minSync) {
+            return elapsedMinTimeout;
         }
     }
 
@@ -382,6 +388,14 @@ public abstract class State {
      * Notifies the addition of a log
      */
     public void logAdded() {}
+
+    /**
+     * Returns the minimum next index for leaders
+     * @return the index
+     */
+    public boolean checkIndexesBefore(Integer indexToCheck) {
+        return true;
+    }
 
     @Override
     public String toString() {
