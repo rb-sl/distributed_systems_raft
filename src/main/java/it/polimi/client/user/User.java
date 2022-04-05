@@ -29,7 +29,7 @@ public class User extends Client {
                 this.requestSerialnumber++;
                 requestComplete = true;
             } catch (RemoteException e) {
-                System.err.println("Connection error, retrying...");
+                System.err.println(e.getMessage() + "Connection error, retrying...");
                 raft = connectToRandomServer();
             } catch (NotLeaderException e) {
                 System.err.println(e + ". Connecting to leader");

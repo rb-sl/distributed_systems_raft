@@ -1,5 +1,5 @@
 {
   "name": "client1",
-  "raftRegistryIP": "127.0.0.1",
+  "raftRegistryIP": "2.229.216.206",
   "raftRegistryPort": "1099"
 }

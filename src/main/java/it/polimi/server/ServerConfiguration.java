@@ -16,6 +16,10 @@ public class ServerConfiguration implements Serializable {
      */
     private final String name;
     /**
+     * Public address where to find the server
+     */
+    private final String serverIP;
+    /**
      * Port where to bind the server
      */
     private final Integer port;
@@ -36,8 +40,9 @@ public class ServerConfiguration implements Serializable {
      */
     private final Integer maxLogLength;
 
-    public ServerConfiguration(String name, Integer port, InetAddress registryIP, Integer registryPort, Map<String, ServerConfiguration> cluster, Integer maxLogLength) {
+    public ServerConfiguration(String name, String serverIP, Integer port, InetAddress registryIP, Integer registryPort, Map<String, ServerConfiguration> cluster, Integer maxLogLength) {
         this.name = name;
+        this.serverIP = serverIP;
         this.port = port;
         this.registryIP = registryIP;
         this.registryPort = registryPort;

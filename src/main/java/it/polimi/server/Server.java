@@ -169,6 +169,11 @@ public class Server implements RemoteServerInterface {
 
             try {
                 if (!reload) {
+                    // Sets the server ip if in configuration
+                    String serverIP = configuration.getServerIP();
+                    if(serverIP != null) {
+                        System.setProperty("java.rmi.server.hostname", serverIP);
+                    }
                     // Builds the server interface on the given port (or on a random one if null)
                     Integer port = configuration.getPort();
                     if (port == null) {
@@ -223,7 +228,8 @@ public class Server implements RemoteServerInterface {
                         }
                         peer.notifyAvailability(id, this);
                     } catch (RemoteException | NotBoundException e) {
-                        System.err.println("Server '" + other.getName() + "' at " + otherRegistryIP + ":" + otherRegistryPort + " not available");
+                        System.err.println("Server '" + other.getName() + "' at registry " + otherRegistryIP + ":" 
+                                + otherRegistryPort + " not available");
                     }
                 }
             } catch (Exception e) {

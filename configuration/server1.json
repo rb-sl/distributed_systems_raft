@@ -1,1 +1,1 @@
-{"name":"server1","cluster":{"server2":{"name":"server2"},"server3":{"name":"server3","registryIP":"127.0.0.1","registryPort":1099}},"maxLogLength":20}
+{"name":"server1","serverIP":"2.229.216.206","port":4242,"cluster":{"server2":{"name":"server2","port":4243,"registryIP":"2.229.216.206","registryPort":1099},"server3":{"name":"server3","port":4244,"registryIP":"2.229.216.206","registryPort":1099}},"maxLogLength":20}
