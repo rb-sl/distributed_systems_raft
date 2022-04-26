@@ -236,7 +236,15 @@ public class IntegrationTest {
 
     @Test
     void ttt() {
-        AdminConsole a = new AdminConsole();        
-        a.sendConfiguration("newConf");        
+        AdminConsole a = new AdminConsole();
+        a.sendConfiguration("newConf2");
+    }
+
+    @Test
+    void t2() {
+        AdminConsole a = new AdminConsole();
+        a.startServer("server3");
+        a.startServer("server2");
+        a.startServer("server1");
     }
 }

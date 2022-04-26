@@ -6,6 +6,8 @@ import it.polimi.exceptions.NotLeaderException;
 import java.io.*;
 import java.rmi.RemoteException;
 
+import static java.lang.System.exit;
+
 public class User extends Client {    
     public User() {
         this("user1");
@@ -13,6 +15,15 @@ public class User extends Client {
     
     public User(String userName) {
         super(userName);
+
+        // When a client first starts up, it connects to a randomly chosen server
+        // If the client’s first choice is not the leader, that server will reject the client’s request and supply
+        // information about the most recent leader [done in each method]
+        raft = connectToRandomServer();
+        if (raft == null) {
+            System.err.println("Unable to access the Raft cluster");
+            exit(0);
+        }
     }
 
     /**

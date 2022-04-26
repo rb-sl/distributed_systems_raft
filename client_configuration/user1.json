@@ -1,5 +1,27 @@
 {
   "name": "client1",
-  "raftRegistryIP": "2.229.216.206",
-  "raftRegistryPort": "1099"
+  "clusterConfiguration": {
+    "server1": {
+      "name":"server1",
+      "serverIP":"192.168.1.101",
+      "port":4242
+    },
+    "server2": {
+      "name":"server2",
+      "serverIP":"192.168.1.101",
+      "port":4243,
+      "registryPort":1099
+    },
+    "server3": {
+      "name":"server3",
+      "serverIP":"192.168.1.92",
+      "port":4244,
+      "registryPort":1099
+    },
+    "server4": {
+      "name":"server4",
+      "serverIP":"192.168.1.92",
+      "port":4245
+    }
+  }
 }

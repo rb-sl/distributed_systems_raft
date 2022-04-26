@@ -16,17 +16,13 @@ public class ServerConfiguration implements Serializable {
      */
     private final String name;
     /**
-     * Public address where to find the server
+     * Public address where to find the server and its registry
      */
-    private final String serverIP;
+    private final InetAddress serverIP;
     /**
      * Port where to bind the server
      */
     private final Integer port;
-    /**
-     * Address where to find the registry
-     */
-    private final InetAddress registryIP;
     /**
      * Port of the registry
      */
@@ -40,11 +36,10 @@ public class ServerConfiguration implements Serializable {
      */
     private final Integer maxLogLength;
 
-    public ServerConfiguration(String name, String serverIP, Integer port, InetAddress registryIP, Integer registryPort, Map<String, ServerConfiguration> cluster, Integer maxLogLength) {
+    public ServerConfiguration(String name, InetAddress serverIP, Integer port, Integer registryPort, Map<String, ServerConfiguration> cluster, Integer maxLogLength) {
         this.name = name;
         this.serverIP = serverIP;
         this.port = port;
-        this.registryIP = registryIP;
         this.registryPort = registryPort;
         this.cluster = cluster;
         this.maxLogLength = maxLogLength;
@@ -55,6 +50,10 @@ public class ServerConfiguration implements Serializable {
         newCluster.putAll(conf1);
         newCluster.putAll(conf2);
         return newCluster;
+    }
+    
+    public Integer getRegistryPort() {
+        return this.registryPort != null ? this.registryPort : 1099;
     }
 
     @Override
@@ -70,13 +69,13 @@ public class ServerConfiguration implements Serializable {
             }
         }
         ServerConfiguration that = (ServerConfiguration) o;
-        return name.equals(that.name) && Objects.equals(port, that.port) && Objects.equals(registryIP, that.registryIP) 
+        return name.equals(that.name) && Objects.equals(port, that.port) && Objects.equals(serverIP, that.serverIP) 
                 && Objects.equals(registryPort, that.registryPort) && Objects.equals(cluster, that.cluster) 
                 && Objects.equals(maxLogLength, that.maxLogLength);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(name, port, registryIP, registryPort, cluster, maxLogLength);
+        return Objects.hash(name, port, serverIP, registryPort, cluster, maxLogLength);
     }
 }

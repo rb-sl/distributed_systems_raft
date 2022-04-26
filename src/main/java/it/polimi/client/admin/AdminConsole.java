@@ -18,8 +18,12 @@ import java.nio.file.Paths;
 import java.rmi.ConnectException;
 import java.rmi.NotBoundException;
 import java.rmi.RemoteException;
+import java.rmi.registry.LocateRegistry;
+import java.rmi.registry.Registry;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static java.lang.System.exit;
 
@@ -37,11 +41,12 @@ public class AdminConsole extends Client {
         super(adminName);
 
         raftCluster = new HashMap<>();        
-        String[] servers = availableServers();
+        List<String> servers = availableServers();
+        System.out.println(servers);
         for(String id : servers) {
             System.out.println("Connecting to " + id);
             try {
-                raftCluster.put(id, (RemoteServerInterface) registry.lookup(id));
+                raftCluster.put(id, getServerInterface(id));
             } catch (RemoteException | NotBoundException e) {
                 System.err.println("Cannot connect to server " + id);
                 e.printStackTrace();
@@ -131,8 +136,7 @@ public class AdminConsole extends Client {
      */
     public void killServer(String serverName) {
         try {
-            RemoteServerInterface toKill = (RemoteServerInterface) registry.lookup(serverName);
-            toKill.stop();
+            getServerInterface(serverName).stop();
             System.out.println("Server " + serverName + " stopped.");
         } catch (ConnectException | NullPointerException ex) {
             System.err.println("Cannot connect to " + serverName + ", server is likely not active");

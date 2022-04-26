@@ -170,9 +170,9 @@ public class Server implements RemoteServerInterface {
             try {
                 if (!reload) {
                     // Sets the server ip if in configuration
-                    String serverIP = configuration.getServerIP();
+                    InetAddress serverIP = configuration.getServerIP();
                     if(serverIP != null) {
-                        System.setProperty("java.rmi.server.hostname", serverIP);
+                        System.setProperty("java.rmi.server.hostname", serverIP.getHostAddress());
                     }
                     // Builds the server interface on the given port (or on a random one if null)
                     Integer port = configuration.getPort();
@@ -182,17 +182,17 @@ public class Server implements RemoteServerInterface {
                     this.selfInterface = (RemoteServerInterface) UnicastRemoteObject.exportObject(this, port);
                 }
 
+//                localRegistry = LocateRegistry.getRegistry(configuration.getRegistryIP().getHostAddress(), configuration.getRegistryPort());
+                // Binds on the local registry
                 localRegistry = LocateRegistry.getRegistry();
                 try {
                     localRegistry.bind(id, this.selfInterface);
                 } catch (AlreadyBoundException e) {
                     localRegistry.rebind(id, this.selfInterface);
                 } catch (RemoteException e) {
-                    System.err.println("Creating local RMI registry");
+//                    e.printStackTrace();
+                    System.err.println("Creating local RMI registry (" + configuration.getServerIP() + ")");
                     Integer localPort = configuration.getRegistryPort();
-                    if (localPort == null) {
-                        localPort = 1099;
-                    }
                     localRegistry = LocateRegistry.createRegistry(localPort);
                     localRegistry.bind(id, this.selfInterface);
                 }
@@ -211,11 +211,11 @@ public class Server implements RemoteServerInterface {
                 }
 
                 for (ServerConfiguration other : clusterConf.values()) {
-                    InetAddress otherRegistryIP = other.getRegistryIP();
+                    InetAddress otherRegistryIP = other.getServerIP();
                     Integer otherRegistryPort = other.getRegistryPort();
 
                     try {
-                        if (otherRegistryIP != null && otherRegistryPort != null) {
+                        if (otherRegistryIP != null) {
                             registry = LocateRegistry.getRegistry(otherRegistryIP.getHostAddress(), otherRegistryPort);
                         } else {
                             // With no given information on the registry the server is seeked locally
@@ -712,6 +712,7 @@ public class Server implements RemoteServerInterface {
                 System.err.println("Server not in the configuration ignored.");
                 return;
             }
+            // todo else add to cluster
         }
         
         synchronized (clusterSync) {

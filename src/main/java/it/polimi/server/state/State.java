@@ -38,12 +38,12 @@ public abstract class State {
     /**
      * The normal election timeout
      */
-    protected static final int ELECTION_TIMEOUT = 350;
+    protected static final int ELECTION_TIMEOUT = 1000;
 
     /**
      * The minimum timeout for elections
      */
-    protected static final int MIN_ELECTION_TIMEOUT = 150;
+    protected static final int MIN_ELECTION_TIMEOUT = 600;
 
     // Persistent state on all servers (Updated on stable storage before responding to RPCs)
     /**
