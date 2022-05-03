@@ -26,7 +26,7 @@ class ServerTest {
         }
 
         SortedMap<Integer, LogEntry> ent = new TreeMap<>();
-        ent.put(0, new LogEntry(0, "x", 1, 0, 0, 0));
+        ent.put(0, new LogEntry(0, "null", null, 0, 0, 0));
         ent.put(1, new LogEntry(0, "x", 2, 0, 1, 1));
         ent.put(2, new LogEntry(0, "x", 3, 0, 2, 2));
         ent.put(3, new LogEntry(0, "x", 4, 0, 3, 3));
@@ -35,7 +35,7 @@ class ServerTest {
 
         s.getState().getLogger().printLog();
 
-        assertEquals(ent, s.getState().getLogger().getEntries());
+        assertEquals(ent.toString(), s.getState().getLogger().getEntries().toString());
 
         SortedMap<Integer, LogEntry> ent2 = new TreeMap<>();
         ent2.put(2, new LogEntry(1, "x", 4, 0, 4, 2));

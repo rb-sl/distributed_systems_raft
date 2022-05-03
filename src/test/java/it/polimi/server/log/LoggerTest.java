@@ -38,8 +38,6 @@ class LoggerTest {
         
         // Assert that a empty entries map returns null
         assertNull(logger.termAtPosition(1));
-        
-        // TODO: test using snapshot
     }
     
     @Test

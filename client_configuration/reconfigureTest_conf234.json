@@ -1,0 +1,68 @@
+[["reconfigureTest_server2",
+  {
+    "name": "reconfigureTest_server2",
+    "serverIP": "127.0.0.1",
+    "port": 4242,
+    "registryPort": "1099",
+    "cluster": [
+      ["reconfigureTest_server3",{
+        "name": "reconfigureTest_server3",
+        "serverIP": "127.0.0.1",
+        "port": 4243,
+        "registryPort": "1099"
+      }],
+      ["reconfigureTest_server4",{
+        "name": "reconfigureTest_server4",
+        "serverIP": "127.0.0.1",
+        "port": 4244,
+        "registryPort": "1099"
+      }]
+    ],
+    "maxLogLength": 20
+  }],
+  ["reconfigureTest_server3",
+    {
+      "name": "reconfigureTest_server3",
+      "serverIP": "127.0.0.1",
+      "port": 4243,
+      "registryPort": "1099",
+      "cluster": [
+        ["reconfigureTest_server2",{
+          "name": "reconfigureTest_server2",
+          "serverIP": "127.0.0.1",
+          "port": 4242,
+          "registryPort": "1099"
+        }],
+        ["reconfigureTest_server4",{
+          "name": "reconfigureTest_server4",
+          "serverIP": "127.0.0.1",
+          "port": 4244,
+          "registryPort": "1099"
+        }]
+      ],
+      "maxLogLength": 20
+    }
+  ],
+  ["reconfigureTest_server4",
+    {
+      "name": "reconfigureTest_server4",
+      "serverIP": "127.0.0.1",
+      "port": 4244,
+      "registryPort": "1099",
+      "cluster": [
+        ["reconfigureTest_server2",{
+          "name": "reconfigureTest_server2",
+          "serverIP": "127.0.0.1",
+          "port": 4242,
+          "registryPort": "1099"
+        }],
+        ["reconfigureTest_server3",{
+          "name": "reconfigureTest_server3",
+          "serverIP": "127.0.0.1",
+          "port": 4243,
+          "registryPort": "1099"
+        }]
+      ],
+      "maxLogLength": 20
+    }]
+]

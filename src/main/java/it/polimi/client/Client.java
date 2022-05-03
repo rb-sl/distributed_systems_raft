@@ -3,7 +3,6 @@ package it.polimi.client;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import it.polimi.networking.RemoteServerInterface;
-import it.polimi.server.Server;
 import it.polimi.server.ServerConfiguration;
 
 import java.io.BufferedReader;
@@ -22,10 +21,6 @@ import java.rmi.registry.Registry;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
-import java.util.Set;
-import java.util.concurrent.ThreadLocalRandom;
-
-import static java.lang.System.exit;
 
 public abstract class Client implements Remote, Serializable {
     /**

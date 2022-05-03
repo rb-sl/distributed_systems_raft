@@ -1,0 +1,29 @@
+{
+  "name": "reconfigureTest_user1",
+  "clusterConfiguration": {
+    "reconfigureTest_server1": {
+      "name":"reconfigureTest_server1",
+      "serverIP":"127.0.0.1",
+      "port":4241
+    },
+    "reconfigureTest_server2": {
+      "name":"reconfigureTest_server2",
+      "serverIP":"127.0.0.1",
+      "port":4242,
+      "registryPort":1099
+    },
+    "reconfigureTest_server3": {
+      "name":"reconfigureTest_server3",
+      "serverIP":"127.0.0.1",
+      "port":4243,
+      "registryPort":1099
+    },
+    "reconfigureTest_server4": {
+      "name":"reconfigureTest_server4",
+      "serverIP":"127.0.0.1",
+      "port":4244,
+      "registryPort":1099
+    }
+  },
+  "isAdmin": true
+}

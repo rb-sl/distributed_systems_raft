@@ -29,6 +29,7 @@ import java.rmi.NotBoundException;
 import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
+import java.rmi.server.ExportException;
 import java.rmi.server.UnicastRemoteObject;
 import java.util.*;
 import java.util.concurrent.BlockingQueue;
@@ -182,7 +183,6 @@ public class Server implements RemoteServerInterface {
                     this.selfInterface = (RemoteServerInterface) UnicastRemoteObject.exportObject(this, port);
                 }
 
-//                localRegistry = LocateRegistry.getRegistry(configuration.getRegistryIP().getHostAddress(), configuration.getRegistryPort());
                 // Binds on the local registry
                 localRegistry = LocateRegistry.getRegistry();
                 try {
@@ -190,10 +190,14 @@ public class Server implements RemoteServerInterface {
                 } catch (AlreadyBoundException e) {
                     localRegistry.rebind(id, this.selfInterface);
                 } catch (RemoteException e) {
-//                    e.printStackTrace();
                     System.err.println("Creating local RMI registry (" + configuration.getServerIP() + ")");
                     Integer localPort = configuration.getRegistryPort();
-                    localRegistry = LocateRegistry.createRegistry(localPort);
+                    try {
+                        localRegistry = LocateRegistry.createRegistry(localPort);
+                    } 
+                    catch (ExportException ee) {
+                        // Registry created contemporarily by another server 
+                    }
                     localRegistry.bind(id, this.selfInterface);
                 }
 
@@ -207,7 +211,6 @@ public class Server implements RemoteServerInterface {
                 if (clusterConf == null) {
                     System.err.println("Server '" + id + "' is not in the current configuration. Terminating.");
                     exit(-1);
-//                    return;
                 }
 
                 for (ServerConfiguration other : clusterConf.values()) {
@@ -712,7 +715,6 @@ public class Server implements RemoteServerInterface {
                 System.err.println("Server not in the configuration ignored.");
                 return;
             }
-            // todo else add to cluster
         }
         
         synchronized (clusterSync) {

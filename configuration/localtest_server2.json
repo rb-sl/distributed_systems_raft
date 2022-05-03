@@ -1,0 +1,1 @@
+{"name":"localtest_server2","serverIP":"127.0.0.1","port":4242,"cluster":{"localtest_server1":{"name":"localtest_server1","serverIP":"127.0.0.1","port":4241,"registryPort":1099},"localtest_server3":{"name":"localtest_server3","serverIP":"127.0.0.1","port":4243,"registryPort":1099}},"maxLogLength":20}

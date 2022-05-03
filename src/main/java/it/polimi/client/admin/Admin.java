@@ -18,38 +18,33 @@ import java.nio.file.Paths;
 import java.rmi.ConnectException;
 import java.rmi.NotBoundException;
 import java.rmi.RemoteException;
-import java.rmi.registry.LocateRegistry;
-import java.rmi.registry.Registry;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import static java.lang.System.exit;
 
-public class AdminConsole extends Client {
+public class Admin extends Client {
     /**
      * Map of the cluster
      */
     private final Map<String, RemoteServerInterface> raftCluster;
 
-    public AdminConsole() {
+    public Admin() {
         this("admin1");
     }
     
-    public AdminConsole(String adminName) {
+    public Admin(String adminName) {
         super(adminName);
 
         raftCluster = new HashMap<>();        
         List<String> servers = availableServers();
-        System.out.println(servers);
         for(String id : servers) {
             System.out.println("Connecting to " + id);
             try {
                 raftCluster.put(id, getServerInterface(id));
             } catch (RemoteException | NotBoundException e) {
                 System.err.println("Cannot connect to server " + id);
-                e.printStackTrace();
             }
         }       
         
@@ -165,17 +160,25 @@ public class AdminConsole extends Client {
         }
 
         boolean requestComplete = false;
+        RemoteServerInterface newLeader = null;
         while (!requestComplete) {
             try {
                 raft.changeConfiguration(id, this.requestSerialnumber, cNew);
                 this.requestSerialnumber++;
                 requestComplete = true;
-            } catch (RemoteException e) {
+            } catch (NotLeaderException e) {
+                if(e.getLeader() != newLeader) {
+                    System.err.println(e + " Connecting to leader");
+                    raft = e.getLeader();
+                    newLeader = e.getLeader();
+                }
+                else {
+                    System.err.println(e + " Retrying...");
+                    raft = connectToRandomServer();
+                }                
+            } catch (RemoteException | NullPointerException e) {
                 System.err.println("Connection error, retrying...");
                 raft = connectToRandomServer();
-            } catch (NotLeaderException e) {
-                System.err.println(e + " Connecting to leader");
-                raft = e.getLeader();
             }
         }
 
