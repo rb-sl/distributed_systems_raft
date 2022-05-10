@@ -160,17 +160,17 @@ public class Admin extends Client {
         }
 
         boolean requestComplete = false;
-        RemoteServerInterface newLeader = null;
+        String newLeaderException = null;
         while (!requestComplete) {
             try {
                 raft.changeConfiguration(id, this.requestSerialnumber, cNew);
                 this.requestSerialnumber++;
                 requestComplete = true;
             } catch (NotLeaderException e) {
-                if(e.getLeader() != newLeader) {
+                if(!e.toString().equals(newLeaderException)) {
                     System.err.println(e + " Connecting to leader");
                     raft = e.getLeader();
-                    newLeader = e.getLeader();
+                    newLeaderException = e.toString();
                 }
                 else {
                     System.err.println(e + " Retrying...");

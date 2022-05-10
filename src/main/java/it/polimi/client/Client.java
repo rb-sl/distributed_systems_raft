@@ -127,6 +127,7 @@ public abstract class Client implements Remote, Serializable {
      */
     protected String[] readCommand() {
         try {
+            System.out.print("> ");
             String line;
             line = br.readLine();
             return line.split(" ");

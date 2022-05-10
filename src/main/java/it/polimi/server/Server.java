@@ -27,6 +27,7 @@ import java.nio.file.*;
 import java.rmi.AlreadyBoundException;
 import java.rmi.NotBoundException;
 import java.rmi.RemoteException;
+import java.rmi.UnmarshalException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
 import java.rmi.server.ExportException;
@@ -392,16 +393,18 @@ public class Server implements RemoteServerInterface {
                     message.getOrigin().reply(result);
                 }
             } catch (InterruptedException | ServerStoppedException e) {
-                if(this.state.getRole() == State.Role.Leader) {
+                if (this.state.getRole() == State.Role.Leader) {
                     this.stopKeepAlive();
                     this.state.stopReplication();
                 }
-                
-                if(this.electionManager != null) {
+
+                if (this.electionManager != null) {
                     this.electionManager.interruptElection();
                 }
-                
+
                 exit(0);
+            } catch (UnmarshalException e) {
+                // A server stopped during communication
             } catch (RemoteException e) {
                 e.printStackTrace();
             }

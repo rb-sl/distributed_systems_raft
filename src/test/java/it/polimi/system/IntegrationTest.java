@@ -11,6 +11,16 @@ import static it.polimi.utilities.ProcessStarter.startServerProcess;
 import static org.junit.jupiter.api.Assertions.*;
 
 public class IntegrationTest {    
+    public void testWait(Integer ms) {
+        try {
+            synchronized (Thread.currentThread()) {
+                Thread.currentThread().wait(ms);
+            }
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+    } 
+    
     @Test
     void processTest() {
         Server s = new Server("localtest_server1");
@@ -29,13 +39,7 @@ public class IntegrationTest {
             return;
         }
 
-        try {
-            synchronized (Thread.currentThread()) {
-                Thread.currentThread().wait(4000);
-            }
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
+        testWait(4000);
 
         assertEquals("localtest_server1", s.getId());
         
@@ -51,13 +55,7 @@ public class IntegrationTest {
         assertDoesNotThrow(() -> admin.startServer("localtest_server2"));
         assertDoesNotThrow(() -> admin.startServer("localtest_server3"));
 
-        try {
-            synchronized (Thread.currentThread()) {
-                Thread.currentThread().wait(4000);
-            }
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
+        testWait(4000);
 
         assertDoesNotThrow(() -> admin.killServer("localtest_server2"));
         assertDoesNotThrow(() -> admin.killServer("localtest_server3"));
@@ -89,13 +87,7 @@ public class IntegrationTest {
         }
 
         // Server startup
-        try {
-            synchronized (Thread.currentThread()) {
-                Thread.currentThread().wait(2000);
-            }
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
+        testWait(2000);
 
         User user = new User("localtest_user1");
         
@@ -105,14 +97,8 @@ public class IntegrationTest {
         
         assertEquals(x, 199);
 
-        try {
-            synchronized (Thread.currentThread()) {
-                Thread.currentThread().wait(1000);
-            }
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
-        
+        testWait(1000);
+
         user.writeToCluster("x", 3);
         user.writeToCluster("x", 4);
 
@@ -121,13 +107,7 @@ public class IntegrationTest {
         assertEquals(x, 4);
         
         // Waiting a bit before closing
-        try {
-            synchronized (Thread.currentThread()) {
-                Thread.currentThread().wait(2000);
-            }
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
+        testWait(1000);
 
         assertEquals("localtest_server1", server1.getId());
 
@@ -154,13 +134,7 @@ public class IntegrationTest {
         }
 
         // Server startup
-        try {
-            synchronized (Thread.currentThread()) {
-                Thread.currentThread().wait(2000);
-            }
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
+        testWait(2000);
 
         User user1 = new User("localtest_user1");
         User user2 = new User("localtest_user2");
@@ -176,13 +150,7 @@ public class IntegrationTest {
         x2 = user1.readFromCluster("x");
         
         // Waiting a bit before closing
-        try {
-            synchronized (Thread.currentThread()) {
-                Thread.currentThread().wait(2000);
-            }
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
+        testWait(2000);
 
         assertEquals(x1, 199);
 
@@ -203,37 +171,19 @@ public class IntegrationTest {
         a.startServer("reconfigureTest_server4");
 
         // Waiting for servers to start
-        try {
-            synchronized (Thread.currentThread()) {
-                Thread.currentThread().wait(5000);
-            }
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
+        testWait(5000);
         
         a.sendConfiguration("reconfigureTest_conf234");
 
-        try {
-            synchronized (Thread.currentThread()) {
-                Thread.currentThread().wait(5000);
-            }
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
-        
+        testWait(5000);
+
         a.sendConfiguration("reconfigureTest_conf123");
 
-        try {
-            synchronized (Thread.currentThread()) {
-                Thread.currentThread().wait(10000);
-            }
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
+        testWait(5000);
 
-        a.killServer("reconfigureTest_server1");
-        a.killServer("reconfigureTest_server2");
-        a.killServer("reconfigureTest_server3");
-        a.killServer("reconfigureTest_server4");
+//        a.killServer("reconfigureTest_server1");
+//        a.killServer("reconfigureTest_server2");
+//        a.killServer("reconfigureTest_server3");
+//        a.killServer("reconfigureTest_server4");
     }
 }
