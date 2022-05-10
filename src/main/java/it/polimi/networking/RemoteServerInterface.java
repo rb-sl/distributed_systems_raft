@@ -94,7 +94,15 @@ public interface RemoteServerInterface extends Remote {
          * @throws NotLeaderException When the queried server is not the leader
          */
         Integer write(String clientId, Integer clientRequestNumber, String variable, Integer value) throws RemoteException, NotLeaderException;
-        
+
+        /**
+         * Changes cluster configuration
+         * @param clientId The caller ID
+         * @param clientRequestNumber The request number
+         * @param newConfigurations The new configuration to install
+         * @throws RemoteException For RMI
+         * @throws NotLeaderException When the contacted server is not a leader
+         */
         void changeConfiguration(String clientId, Integer clientRequestNumber, Map<String, ServerConfiguration> newConfigurations) throws RemoteException, NotLeaderException;
 
         /**
